@@ -110,7 +110,7 @@ async function main() {
 
   try {
     logger.info('Starting SSH MCP Server...');
-    
+
     const server = new SSHMCPServer();
     await server.run();
 
@@ -125,12 +125,12 @@ async function main() {
         warned = true;
       }
     });
-    
+
     // Check if running in daemon mode (for testing)
     if (process.env.SSH_MCP_DAEMON === 'true') {
       logger.info('Running in daemon mode - will not wait for stdin');
       // Keep alive but don't block on stdin
-      setInterval(() => {}, 1000);
+      setInterval(() => { }, 1000);
     } else if (process.env.SSH_MCP_ONESHOT === 'true') {
       logger.info('Running in one-shot mode - will exit after processing');
       // Process stdin once and exit with timeout
@@ -138,7 +138,7 @@ async function main() {
         logger.info('One-shot mode timeout, exiting');
         process.exit(0);
       }, 2000);
-      
+
       process.stdin.once('data', () => {
         clearTimeout(timeout);
         setTimeout(() => process.exit(0), 100);
@@ -148,7 +148,7 @@ async function main() {
       // Keep the process running for MCP stdio communication
       process.stdin.resume();
     }
-    
+
   } catch (error) {
     logger.error('Failed to start SSH MCP Server', { error });
     process.exit(1);
@@ -167,14 +167,29 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Handle graceful shutdown
+let shuttingDown = false;
 async function gracefulShutdown(signal: string) {
-  logger.info(`Received ${signal}, shutting down gracefully...`);
-  try {
-    await sessionManager.closeAllSessions();
-    logger.info('All SSH sessions closed');
-  } catch (error) {
-    logger.error('Error during graceful shutdown', { error });
+  if (shuttingDown) {
+    // Second signal = force exit immediately
+    logger.info('Force exit');
+    process.exit(0);
   }
+  shuttingDown = true;
+  logger.info(`Received ${signal}, shutting down...`);
+
+  // Force exit after 2 seconds max
+  const forceExit = setTimeout(() => {
+    logger.info('Shutdown timeout, forcing exit');
+    process.exit(0);
+  }, 2000);
+
+  try {
+    await sessionManager.destroy();
+  } catch (error) {
+    logger.error('Shutdown error', { error });
+  }
+
+  clearTimeout(forceExit);
   process.exit(0);
 }
 
