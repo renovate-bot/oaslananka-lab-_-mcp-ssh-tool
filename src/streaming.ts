@@ -127,6 +127,7 @@ export async function execWithStreaming(options: StreamOptions): Promise<StreamR
 }
 
 /**
+ * @internal
  * Formats streaming output for display
  */
 export function formatStreamOutput(chunks: StreamChunk[]): string {

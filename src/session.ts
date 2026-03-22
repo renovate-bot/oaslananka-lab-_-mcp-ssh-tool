@@ -1,5 +1,5 @@
 import { NodeSSH } from 'node-ssh';
-import SftpClient from 'ssh2-sftp-client';
+import type { SFTPWrapper } from 'ssh2';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -9,11 +9,11 @@ import { logger } from './logging.js';
 import { detectOS } from './detect.js';
 
 /**
- * SSH session with connection and SFTP client
+ * SSH session with connection and SFTP client (using NodeSSH internal SFTP)
  */
 export interface SSHSession {
   ssh: NodeSSH;
-  sftp: SftpClient;
+  sftp: SFTPWrapper;  // ssh2's native SFTP channel
   info: SessionInfo;
   connectionParams?: ConnectionParams; // For auto-reconnect
   osInfo?: OSInfo;
@@ -86,30 +86,39 @@ export class SessionManager {
       const ssh = new NodeSSH();
       const authConfig = await this.buildAuthConfig(params);
 
+      // Check env vars for host key checking and known hosts
+      const strictHostKey = params.strictHostKeyChecking
+        ?? (process.env.STRICT_HOST_KEY_CHECKING === 'true');
+      const knownHostsPath = params.knownHostsPath
+        ?? process.env.KNOWN_HOSTS_PATH;
+
       const connectConfig = {
         host: params.host,
         username: params.username,
         port: params.port || 22,
         readyTimeout: params.readyTimeoutMs || 20000,
-        hostVerifyMethod: params.strictHostKeyChecking
+        hostVerifier: strictHostKey
           ? undefined  // Use default strict checking
           : () => true, // Relaxed host key checking
-        knownHosts: params.knownHostsPath,
+        knownHosts: knownHostsPath,
         ...authConfig
       };
 
       logger.debug('Connecting to SSH server');
       await ssh.connect(connectConfig);
 
-      // Initialize SFTP client
-      const sftp = new SftpClient();
-      await sftp.connect({
-        host: params.host,
-        username: params.username,
-        port: params.port || 22,
-        readyTimeout: params.readyTimeoutMs || 20000,
-        ...authConfig
+      // Get SFTP channel from the existing SSH connection (no second connection)
+      const sftpChannel = await new Promise<SFTPWrapper>((resolve, reject) => {
+        (ssh as any).connection.sftp((err: Error | undefined, sftp: SFTPWrapper) => {
+          if (err) reject(err);
+          else resolve(sftp);
+        });
       });
+
+      // Log warning if host key checking is disabled
+      if (!strictHostKey) {
+        logger.warn('Host key checking is DISABLED. Set STRICT_HOST_KEY_CHECKING=true for production use.', { sessionId });
+      }
 
       const sessionInfo: SessionInfo = {
         sessionId,
@@ -123,7 +132,7 @@ export class SessionManager {
 
       const session: SSHSession = {
         ssh,
-        sftp,
+        sftp: sftpChannel,
         info: sessionInfo,
         connectionParams: params // Store for reconnect
       };
@@ -186,7 +195,10 @@ export class SessionManager {
     }
 
     try {
-      await session.sftp.end();
+      // Close SFTP channel if it has an end method
+      if (session.sftp && typeof (session.sftp as any).end === 'function') {
+        (session.sftp as any).end();
+      }
       session.ssh.dispose();
     } catch (error) {
       logger.warn('Error closing session', { sessionId, error });

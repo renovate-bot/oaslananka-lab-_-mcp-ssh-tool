@@ -1,14 +1,45 @@
 /**
  * File Transfer with Progress Tracking
- * 
+ *
  * Provides file upload/download with progress callbacks
  */
 
 import * as fs from 'fs';
 import * as path from 'path';
+import type { SFTPWrapper, Stats } from 'ssh2';
 import { sessionManager } from './session.js';
 import { logger } from './logging.js';
 import { createFilesystemError } from './errors.js';
+
+/**
+ * Promisified SFTP helpers for transfer
+ */
+function sftpWriteFile(sftp: SFTPWrapper, remotePath: string, data: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.writeFile(remotePath, data, {}, (err: Error | null | undefined) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function sftpReadFile(sftp: SFTPWrapper, remotePath: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    sftp.readFile(remotePath, (err: Error | null | undefined, data: Buffer) => {
+      if (err) reject(err);
+      else resolve(data);
+    });
+  });
+}
+
+function sftpStat(sftp: SFTPWrapper, remotePath: string): Promise<Stats> {
+  return new Promise((resolve, reject) => {
+    sftp.stat(remotePath, (err: Error | null | undefined, stats: Stats) => {
+      if (err) reject(err);
+      else resolve(stats);
+    });
+  });
+}
 
 /**
  * Transfer progress information
@@ -74,7 +105,7 @@ export async function uploadFileWithProgress(
         const fileContent = await fs.promises.readFile(localPath);
 
         // Upload using SFTP
-        await session.sftp.put(fileContent, remotePath);
+        await sftpWriteFile(session.sftp, remotePath, fileContent);
 
         // Final progress update
         transferred = totalSize;
@@ -141,20 +172,14 @@ export async function downloadFileWithProgress(
 
     try {
         // Get remote file size
-        const stats = await session.sftp.stat(remotePath);
-        const totalSize = stats.size;
+        const stats = await sftpStat(session.sftp, remotePath);
+        const totalSize = stats.size ?? 0;
 
         // Download file
-        const data = await session.sftp.get(remotePath);
+        const data = await sftpReadFile(session.sftp, remotePath);
 
         // Write to local file
-        if (Buffer.isBuffer(data)) {
-            await fs.promises.writeFile(localPath, data);
-        } else if (typeof data === 'string') {
-            await fs.promises.writeFile(localPath, data);
-        } else {
-            throw createFilesystemError('Unexpected data type from SFTP get');
-        }
+        await fs.promises.writeFile(localPath, data);
 
         // Final progress update
         if (onProgress) {
@@ -198,6 +223,7 @@ export async function downloadFileWithProgress(
 }
 
 /**
+ * @internal
  * Formats transfer speed for display
  */
 export function formatSpeed(bytesPerSecond: number): string {
@@ -211,6 +237,7 @@ export function formatSpeed(bytesPerSecond: number): string {
 }
 
 /**
+ * @internal
  * Formats file size for display
  */
 export function formatSize(bytes: number): string {
@@ -226,6 +253,7 @@ export function formatSize(bytes: number): string {
 }
 
 /**
+ * @internal
  * Formats ETA for display
  */
 export function formatETA(seconds: number): string {

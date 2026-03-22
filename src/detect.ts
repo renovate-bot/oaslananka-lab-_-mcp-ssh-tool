@@ -153,7 +153,7 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
           break;
         } else if (output.includes('red hat') || output.includes('rhel') || output.includes('centos')) {
           distro = 'rhel';
-          const versionMatch = result.stdout.match(/(\\d+\\.\\d+)/);
+          const versionMatch = result.stdout.match(/(\d+\.\d+)/);
           if (versionMatch) {
             version = versionMatch[1];
           }

@@ -6,7 +6,7 @@
  * 
  * Quick start with Docker:
  * docker-compose up -d ssh-server
- * npm run e2e
+ * npm run test:e2e
  */
 
 import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
@@ -158,7 +158,7 @@ describe('SSH MCP Server E2E Tests', () => {
 
       const stats = await statFile(sessionId, testFilePath);
 
-      expect(stats.isFile).toBe(true);
+      expect(stats.type).toBe('file');
       expect(stats.size).toBeGreaterThan(0);
       console.log(`✅ File size: ${stats.size} bytes`);
     });
@@ -166,11 +166,11 @@ describe('SSH MCP Server E2E Tests', () => {
     e2eTest('should list directory', async () => {
       const { listDirectory } = await import('../../src/fs-tools.js');
 
-      const entries = await listDirectory(sessionId, '/tmp');
+      const result = await listDirectory(sessionId, '/tmp');
 
-      expect(Array.isArray(entries)).toBe(true);
-      expect(entries.some((e: any) => e.name === 'mcp-ssh-test-file.txt')).toBe(true);
-      console.log(`✅ Found ${entries.length} entries in /tmp`);
+      expect(Array.isArray(result.entries)).toBe(true);
+      expect(result.entries.some((e: any) => e.name === 'mcp-ssh-test-file.txt')).toBe(true);
+      console.log(`✅ Found ${result.entries.length} entries in /tmp`);
     });
 
     e2eTest('should create directory', async () => {

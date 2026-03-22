@@ -1,130 +1,84 @@
-import { describe, test, expect } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, jest, test } from '@jest/globals';
+import {
+  LogLevel,
+  Logger,
+  Timer,
+  createTimer,
+  redactErrorMessage,
+  redactSensitiveData
+} from '../../src/logging.js';
 
-// Simple redaction test without importing the actual module
-describe('Logging Utilities (Logic Tests)', () => {
-  describe('redactSensitiveData logic', () => {
-    test('should redact password fields', () => {
-      // Test the logic pattern we use in the actual implementation
-      const SENSITIVE_FIELDS = ['password', 'privateKey', 'passphrase', 'sudoPassword'];
-      const REDACTED = '****';
-      
-      const redactObject = (obj: any): any => {
-        if (obj === null || obj === undefined) return obj;
-        if (typeof obj === 'string') return obj;
-        if (Array.isArray(obj)) return obj.map(redactObject);
-        
-        if (typeof obj === 'object') {
-          const redacted: any = {};
-          for (const [key, value] of Object.entries(obj)) {
-            if (SENSITIVE_FIELDS.includes(key.toLowerCase())) {
-              redacted[key] = value ? REDACTED : value;
-            } else {
-              redacted[key] = redactObject(value);
-            }
-          }
-          return redacted;
-        }
-        return obj;
-      };
-      
-      const input = {
-        username: 'testuser',
-        password: 'secret123',
-        host: 'example.com'
-      };
-      
-      const result = redactObject(input);
-      
-      expect(result.username).toBe('testuser');
-      expect(result.password).toBe('****');
-      expect(result.host).toBe('example.com');
+describe('logging utilities', () => {
+  let stderrSpy: ReturnType<typeof jest.spyOn>;
+
+  beforeEach(() => {
+    stderrSpy = jest.spyOn(process.stderr, 'write').mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    stderrSpy.mockRestore();
+    jest.useRealTimers();
+  });
+
+  test('redactSensitiveData redacts nested sensitive fields', () => {
+    const result = redactSensitiveData({
+      username: 'demo',
+      password: 'secret',
+      nested: {
+        privateKey: 'pem-data',
+        values: [{ sudoPassword: 'pw' }]
+      }
     });
 
-    test('should handle nested objects', () => {
-      const SENSITIVE_FIELDS = ['password', 'privatekey', 'passphrase', 'sudopassword'];
-      const REDACTED = '****';
-      
-      const redactObject = (obj: any): any => {
-        if (obj === null || obj === undefined) return obj;
-        if (typeof obj === 'string') return obj;
-        if (Array.isArray(obj)) return obj.map(redactObject);
-        
-        if (typeof obj === 'object') {
-          const redacted: any = {};
-          for (const [key, value] of Object.entries(obj)) {
-            if (SENSITIVE_FIELDS.includes(key.toLowerCase())) {
-              redacted[key] = value ? REDACTED : value;
-            } else {
-              redacted[key] = redactObject(value);
-            }
-          }
-          return redacted;
-        }
-        return obj;
-      };
-      
-      const input = {
-        connection: {
-          auth: {
-            password: 'secret',
-            privateKey: 'key-content'
-          }
-        },
-        metadata: {
-          host: 'example.com'
-        }
-      };
-      
-      const result = redactObject(input);
-      
-      expect(result.connection.auth.password).toBe('****');
-      expect(result.connection.auth.privateKey).toBe('****');
-      expect(result.metadata.host).toBe('example.com');
+    expect(result).toEqual({
+      username: 'demo',
+      password: '****',
+      nested: {
+        privateKey: '****',
+        values: [{ sudoPassword: '****' }]
+      }
     });
   });
 
-  describe('redactErrorMessage logic', () => {
-    test('should redact password patterns', () => {
-      const redactErrorMessage = (message: string): string => {
-        const patterns = [
-          /password[=:\s]+[^\s]+/gi,
-          /key[=:\s]+[^\s]+/gi,
-          /passphrase[=:\s]+[^\s]+/gi,
-          /-----BEGIN[^-]+-----[\s\S]*?-----END[^-]+-----/gi
-        ];
-        
-        let redacted = message;
-        for (const pattern of patterns) {
-          redacted = redacted.replace(pattern, '****');
-        }
-        return redacted;
-      };
-      
-      const message = 'Authentication failed with password=secret123 for user';
-      const result = redactErrorMessage(message);
-      expect(result).toContain('****');
-      expect(result).not.toContain('secret123');
-    });
+  test('redactErrorMessage removes sensitive patterns and keeps benign text', () => {
+    const message = 'Authentication failed password=secret key=my-key path=/tmp/value';
+    const redacted = redactErrorMessage(message);
 
-    test('should handle messages without sensitive data', () => {
-      const redactErrorMessage = (message: string): string => {
-        const patterns = [
-          /password[=:\s]+[^\s]+/gi,
-          /key[=:\s]+[^\s]+/gi,
-          /passphrase[=:\s]+[^\s]+/gi,
-          /-----BEGIN[^-]+-----[\s\S]*?-----END[^-]+-----/gi
-        ];
-        
-        let redacted = message;
-        for (const pattern of patterns) {
-          redacted = redacted.replace(pattern, '****');
-        }
-        return redacted;
-      };
-      
-      const message = 'Connection timeout to host example.com';
-      const result = redactErrorMessage(message);
-      expect(result).toBe(message);
-    });
+    expect(redacted).toContain('****');
+    expect(redacted).toContain('path=/tmp/value');
+    expect(redacted).not.toContain('secret');
+    expect(redacted).not.toContain('my-key');
+  });
+
+  test('Logger respects log level filtering and redacts payloads', () => {
+    const logger = new Logger(LogLevel.WARN);
+
+    logger.info('skipped', { password: 'secret' });
+    expect(stderrSpy).not.toHaveBeenCalled();
+
+    logger.error('password=secret', { password: 'secret' });
+    expect(stderrSpy).toHaveBeenCalledTimes(1);
+
+    const output = String(stderrSpy.mock.calls[0][0]);
+    expect(output).toContain('ERROR');
+    expect(output).toContain('****');
+    expect(output).not.toContain('secret');
+  });
+
+  test('Timer and createTimer measure elapsed time', () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-03-22T00:00:00Z'));
+
+    const timer = new Timer();
+    jest.setSystemTime(new Date('2026-03-22T00:00:01Z'));
+    expect(timer.elapsed()).toBe(1000);
+
+    timer.reset();
+    jest.setSystemTime(new Date('2026-03-22T00:00:01.500Z'));
+    expect(timer.elapsed()).toBe(500);
+
+    const created = createTimer();
+    jest.setSystemTime(new Date('2026-03-22T00:00:02Z'));
+    expect(created.elapsed()).toBe(500);
   });
 });

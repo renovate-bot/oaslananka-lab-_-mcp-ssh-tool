@@ -5,6 +5,40 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-04-01
+
+### Fixed
+
+- **CRITICAL**: `scripts/setup-chatgpt.js` ESM/CJS uyumsuzluğu düzeltildi
+- **CRITICAL**: `detect.ts` RHEL sürüm tespiti regex düzeltildi
+- **CRITICAL**: `patch_apply` tool alan adı uyumsuzluğu (`patch` → `diff`) düzeltildi
+- **CRITICAL**: `ensure_package` ve `ensure_lines_in_file` araçlarına `absent` state eklendi
+- `commander` v14 için Node.js engine gereksinimleri güncellendi (`>=20`)
+- `STRICT_HOST_KEY_CHECKING` env değişkeni artık `session.ts` tarafından okunuyor
+- E2E testlerdeki `FileStatInfo.isFile` ve `DirListResult` tip hataları düzeltildi
+- `fs-tools.ts` SFTP stat tip tespiti güvenli hale getirildi
+
+### Added
+
+- `absent` state desteği: `ensure_package` artık paket kaldırabilir
+- `absent` state desteği: `ensure_lines_in_file` artık satır silebilir
+- `ensure_service` tool'una `restarted` state eklendi
+- `get_metrics` tool'u ile sunucu performans metrikleri sorgulanabilir
+- Rate limiter artık MCP handler'a entegre edildi
+- Sürüm senkronizasyonu için `scripts/sync-version.mjs` eklendi
+- SSH config cache 5 dakikalık TTL ile yenileme desteği eklendi
+
+### Changed
+
+- Çift SSH bağlantısı kaldırıldı; `NodeSSH` dahili SFTP kanalı kullanılıyor
+- `ssh2-sftp-client` bağımlılığı kaldırıldı
+- README API Reference güncellendi (underscore tool isimleri)
+- CI/CD Azure DevOps'a taşındı
+
+### Security
+
+- Bağlantı açılışında host key doğrulama durumu log'a yazılıyor
+
 ## [1.2.5] - 2026-01-31
 
 ### Fixed

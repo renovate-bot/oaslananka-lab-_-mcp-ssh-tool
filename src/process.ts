@@ -186,6 +186,7 @@ export async function getAvailableShell(sessionId: string): Promise<string> {
 }
 
 /**
+ * @internal
  * Executes a command with proper shell detection
  */
 export async function execWithShell(

@@ -224,7 +224,7 @@ npm link
 npm test
 
 # E2E tests (requires SSH server)
-RUN_SSH_E2E=1 npm run e2e
+RUN_SSH_E2E=1 npm run test:e2e
 ```
 
 ## Environment Variables

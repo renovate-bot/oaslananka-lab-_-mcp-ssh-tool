@@ -281,6 +281,7 @@ export const FSRenameSchema = z.object({
 export const EnsurePackageSchema = z.object({
   sessionId: z.string().min(1),
   name: z.string().min(1),
+  state: z.enum(['present', 'absent']).default('present'),
   sudoPassword: z.string().optional()
 });
 
@@ -295,6 +296,7 @@ export const EnsureLinesSchema = z.object({
   sessionId: z.string().min(1),
   path: z.string().min(1),
   lines: z.array(z.string()),
+  state: z.enum(['present', 'absent']).default('present'),
   createIfMissing: z.boolean().optional().default(true),
   sudoPassword: z.string().optional()
 });

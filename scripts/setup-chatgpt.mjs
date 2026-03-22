@@ -5,9 +5,10 @@
  * Automatically configures mcp-ssh-tool for ChatGPT Desktop
  */
 
-const fs = require('fs');
-const path = require('path');
-const os = require('os');
+import fs from 'fs';
+import path from 'path';
+import os from 'os';
+import readline from 'readline';
 
 // Platform-specific config paths
 const CONFIG_PATHS = {
@@ -70,8 +71,7 @@ function main() {
     console.log('✅ MCP SSH Tool is already configured!');
     console.log('\nCurrent configuration:');
     console.log(JSON.stringify(config.mcpServers['ssh-mcp-server'], null, 2));
-    
-    const readline = require('readline');
+
     const rl = readline.createInterface({
       input: process.stdin,
       output: process.stdout

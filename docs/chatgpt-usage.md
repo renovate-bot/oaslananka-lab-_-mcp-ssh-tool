@@ -87,7 +87,7 @@ ChatGPT'ye doğal dille SSH işlemleri yaptırabilirsiniz:
 | `ensure_package` | Paket kur |
 | `ensure_service` | Servis yönet |
 
-Tam liste için: `ssh_ping`, `fs_stat`, `fs_mkdir`, `fs_rm`, `detect_os`, `ensure_line_in_file`, `ssh_list_configured_hosts`, `ssh_resolve_host`
+Tam liste için: `ssh_ping`, `fs_stat`, `fs_mkdirp`, `fs_rmrf`, `os_detect`, `ensure_lines_in_file`, `ssh_list_configured_hosts`, `ssh_resolve_host`, `get_metrics`
 
 ---
 

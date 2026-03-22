@@ -49,12 +49,13 @@ Once configured, you can use natural language with your MCP client:
 - `ssh_resolve_host` - Resolve host alias from SSH config
 - `proc_exec` - Execute commands remotely (with optional timeout)
 - `proc_sudo` - Execute commands with sudo privileges
-- `fs_read`, `fs_write`, `fs_list`, `fs_stat`, `fs_mkdir`, `fs_rm`, `fs_rename` - File system operations
-- `ensure_package` - Package management
-- `ensure_service` - Service control
-- `ensure_line_in_file` - File line management
+- `fs_read`, `fs_write`, `fs_list`, `fs_stat`, `fs_mkdirp`, `fs_rmrf`, `fs_rename` - File system operations
+- `ensure_package` - Package management with `present` and `absent` states
+- `ensure_service` - Service control including `restarted`
+- `ensure_lines_in_file` - File line management with `present` and `absent` states
 - `patch_apply` - Apply patches to files
-- `detect_os` - System information detection
+- `os_detect` - System information detection
+- `get_metrics` - Server metrics in JSON or Prometheus format
 
 ## Overview
 
@@ -85,7 +86,7 @@ The SSH MCP Server acts as a bridge between GitHub Copilot and remote systems vi
 
 ### Prerequisites
 
-- Node.js ≥ 18 (LTS)
+- Node.js ≥ 20 (LTS)
 - SSH access to target systems
 - SSH keys or credentials for authentication
 
@@ -225,13 +226,9 @@ Then restart networking service"
 
 ## API Reference
 
-### Session Management
+### Session tools
 
-#### `ssh.openSession`
-
-Opens a new SSH session with authentication.
-
-**Input:**
+#### `ssh_open_session`
 
 ```json
 {
@@ -249,7 +246,7 @@ Opens a new SSH session with authentication.
 }
 ```
 
-**Output:**
+Returns:
 
 ```json
 {
@@ -260,11 +257,7 @@ Opens a new SSH session with authentication.
 }
 ```
 
-#### `ssh.closeSession`
-
-Closes an active SSH session.
-
-**Input:**
+#### `ssh_close_session`
 
 ```json
 {
@@ -272,64 +265,55 @@ Closes an active SSH session.
 }
 ```
 
-**Output:**
+#### `ssh_list_sessions`, `ssh_ping`, `ssh_list_configured_hosts`, `ssh_resolve_host`
 
-```json
-{
-  "ok": true
-}
-```
+- `ssh_list_sessions` returns active sessions with remaining TTL.
+- `ssh_ping` checks liveness and latency for a session.
+- `ssh_list_configured_hosts` reads `~/.ssh/config`.
+- `ssh_resolve_host` expands an SSH host alias into connection parameters.
 
-### Process Execution
+### Command tools
 
-#### `proc.exec`
-
-Executes a command on the remote system.
-
-**Input:**
+#### `proc_exec`
 
 ```json
 {
   "sessionId": "ssh-1645123456789-1",
   "command": "ls -la /home",
   "cwd": "/tmp",
-  "env": {"DEBUG": "1"}
+  "env": {
+    "DEBUG": "1"
+  },
+  "timeoutMs": 30000
 }
 ```
 
-**Output:**
-
-```json
-{
-  "code": 0,
-  "stdout": "total 12\ndrwxr-xr-x 3 root root 4096...",
-  "stderr": "",
-  "durationMs": 245
-}
-```
-
-#### `proc.sudo`
-
-Executes a command with sudo privileges.
-
-**Input:**
+#### `proc_sudo`
 
 ```json
 {
   "sessionId": "ssh-1645123456789-1",
   "command": "systemctl restart nginx",
   "password": "sudo-password",
-  "cwd": "/etc"
+  "cwd": "/etc",
+  "timeoutMs": 30000
 }
 ```
 
-### File System Operations
+Both return:
 
-#### `fs.read`
+```json
+{
+  "code": 0,
+  "stdout": "command output",
+  "stderr": "",
+  "durationMs": 245
+}
+```
 
-Reads a file from the remote system.
+### File tools
 
-**Input:**
+- `fs_read`
 
 ```json
 {
@@ -339,170 +323,86 @@ Reads a file from the remote system.
 }
 ```
 
-**Output:**
-
-```json
-{
-  "data": "127.0.0.1 localhost\n::1 localhost\n..."
-}
-```
-
-#### `fs.write`
-
-Writes data to a file (atomic operation using temp file + rename).
-
-**Input:**
+- `fs_write`
 
 ```json
 {
   "sessionId": "ssh-1645123456789-1",
   "path": "/tmp/config.txt",
   "data": "server_name example.com;\nlisten 80;",
-  "mode": 644
+  "mode": 420
 }
 ```
 
-#### `fs.stat`
+- `fs_stat` returns `size`, `mtime`, `mode`, and `type`.
+- `fs_list` returns `{ "entries": [...], "nextToken": "optional" }`.
+- `fs_mkdirp` creates directories recursively.
+- `fs_rmrf` removes files or directories recursively.
+- `fs_rename` renames or moves a path.
 
-Gets file or directory statistics.
+### Configuration and automation tools
 
-**Output:**
-
-```json
-{
-  "size": 1024,
-  "mtime": "2024-01-15T10:30:00.000Z",
-  "mode": 33188,
-  "type": "file"
-}
-```
-
-#### `fs.list`
-
-Lists directory contents with pagination.
-
-**Input:**
-
-```json
-{
-  "sessionId": "ssh-1645123456789-1",
-  "path": "/var/log",
-  "page": 0,
-  "limit": 50
-}
-```
-
-**Output:**
-
-```json
-{
-  "entries": [
-    {
-      "name": "nginx",
-      "type": "directory",
-      "size": 4096,
-      "mtime": "2024-01-15T10:30:00.000Z",
-      "mode": 16877
-    }
-  ],
-  "nextToken": "1"
-}
-```
-
-#### `fs.mkdirp`
-
-Creates directories recursively (mkdir -p equivalent).
-
-#### `fs.rmrf`
-
-Removes files or directories recursively (rm -rf equivalent).
-
-#### `fs.rename`
-
-Renames or moves files and directories.
-
-### High-Level Operations
-
-#### `ensure.package`
-
-Ensures a package is installed using the system's package manager.
-
-**Input:**
+#### `ensure_package`
 
 ```json
 {
   "sessionId": "ssh-1645123456789-1",
   "name": "nginx",
+  "state": "present",
   "sudoPassword": "optional"
 }
 ```
 
-**Output:**
+`state` supports `present` and `absent`.
 
-```json
-{
-  "ok": true,
-  "pm": "apt",
-  "code": 0,
-  "stdout": "Package nginx is already installed",
-  "stderr": ""
-}
-```
-
-#### `ensure.service`
-
-Manages system services (systemd or traditional service).
-
-**Input:**
+#### `ensure_service`
 
 ```json
 {
   "sessionId": "ssh-1645123456789-1",
   "name": "nginx",
-  "state": "started",
+  "state": "restarted",
   "sudoPassword": "optional"
 }
 ```
 
-#### `ensure.linesInFile`
+`state` supports `started`, `stopped`, `restarted`, `enabled`, and `disabled`.
 
-Ensures specific lines exist in a file (idempotent).
-
-**Input:**
+#### `ensure_lines_in_file`
 
 ```json
 {
   "sessionId": "ssh-1645123456789-1",
   "path": "/etc/hosts",
-  "lines": ["192.168.1.10 db-server", "192.168.1.20 cache-server"],
+  "lines": [
+    "192.168.1.10 db-server",
+    "192.168.1.20 cache-server"
+  ],
+  "state": "present",
   "createIfMissing": true,
   "sudoPassword": "optional"
 }
 ```
 
-#### `patch.apply`
+`state` supports `present` and `absent`.
 
-Applies a patch to a file using the `patch` command.
-
-#### `os.detect`
-
-Detects operating system information, package manager, and init system.
-
-**Output:**
+#### `patch_apply`
 
 ```json
 {
-  "platform": "linux",
-  "distro": "ubuntu",
-  "version": "22.04",
-  "arch": "x86_64",
-  "shell": "bash",
-  "packageManager": "apt",
-  "init": "systemd",
-  "defaultShell": "bash",
-  "tempDir": "/tmp"
+  "sessionId": "ssh-1645123456789-1",
+  "path": "/etc/hosts",
+  "diff": "@@ -1 +1 @@\n-old\n+new"
 }
 ```
+
+#### `os_detect`
+
+Returns remote platform, distro, version, package manager, init system, shell, and temp directory.
+
+#### `get_metrics`
+
+Returns server metrics. Default output is JSON; optional `{ "format": "prometheus" }` emits Prometheus text format.
 
 ## Authentication
 
@@ -576,10 +476,17 @@ Custom key directory: Set `SSH_DEFAULT_KEY_DIR` environment variable.
 
 ### Environment Variables
 
-- `LOG_LEVEL` - Logging level (`error`, `warn`, `info`, `debug`)
-- `SSH_DEFAULT_KEY_DIR` - Custom SSH key directory
-- `STRICT_HOST_KEY_CHECKING` - Enable strict host key checking
-- `KNOWN_HOSTS_PATH` - Custom known_hosts file path
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `LOG_LEVEL` | Logging level (`error`, `warn`, `info`, `debug`) | `info` |
+| `STRICT_HOST_KEY_CHECKING` | Enable strict SSH host key verification | `false` |
+| `KNOWN_HOSTS_PATH` | Custom `known_hosts` file path | `~/.ssh/known_hosts` |
+| `SSH_DEFAULT_KEY_DIR` | SSH key search directory | `~/.ssh` |
+| `SSH_MCP_MAX_SESSIONS` | Maximum concurrent sessions | `20` |
+| `SSH_MCP_SESSION_TTL` | Session TTL in milliseconds | `900000` |
+| `SSH_MCP_COMMAND_TIMEOUT` | Default command timeout in milliseconds | `30000` |
+| `SSH_MCP_DEBUG` | Enable debug logging | `false` |
+| `SSH_MCP_RATE_LIMIT` | Enable rate limiting (`true` / `false`) | `true` |
 
 ### Default Settings
 
@@ -650,7 +557,7 @@ npm install
 npm run build      # Compile TypeScript
 npm run dev        # Watch mode compilation
 npm run test       # Run unit tests
-npm run e2e        # Run E2E tests (requires RUN_SSH_E2E=1)
+npm run test:e2e   # Run E2E tests (requires RUN_SSH_E2E=1)
 npm run lint       # Type-check (no emit)
 npm run format     # Run Prettier
 npm run test:coverage
@@ -668,7 +575,7 @@ npm test
 **E2E Tests (optional):**
 
 ```bash
-RUN_SSH_E2E=1 npm run e2e
+RUN_SSH_E2E=1 npm run test:e2e
 ```
 
 ## License

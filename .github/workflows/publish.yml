@@ -1,35 +1,35 @@
-name: Publish
+name: Publish (Manual — GitHub Mirror Only)
 
+# SADECE MANUEL TETİKLEME
+# CI/CD Azure DevOps'ta çalışıyor.
+# Bu workflow sadece doğrudan GitHub üzerinden acil publish gerektiğinde kullanılır.
 on:
-  push:
-    tags:
-      - 'v*'
+  workflow_dispatch:
+    inputs:
+      version_check:
+        description: 'Confirm version in package.json is correct (type YES)'
+        required: true
+        default: ''
 
 concurrency:
-  group: publish-${{ github.ref }}
-  cancel-in-progress: true
+  group: publish-manual-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    if: ${{ github.event.inputs.version_check == 'YES' }}
     permissions:
       contents: write
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Guard - git tag must match package.json version
-        run: |
-          TAG="${GITHUB_REF_NAME#v}"
-          VER="$(node -p "require('./package.json').version")"
-          echo "tag=${TAG} package.json=${VER}"
-          test "$TAG" = "$VER"
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 22.x
+          node-version: 20.x
           cache: npm
           registry-url: 'https://registry.npmjs.org'
 
@@ -42,7 +42,7 @@ jobs:
           PKG_VER="$(node -p "require('./package.json').version")"
           echo "Checking ${PKG_NAME}@${PKG_VER} on npm..."
           if npm view "${PKG_NAME}@${PKG_VER}" version --silent > /dev/null 2>&1; then
-            echo "ERROR: ${PKG_NAME}@${PKG_VER} already exists on npm. Bump version."
+            echo "ERROR: ${PKG_NAME}@${PKG_VER} already exists on npm."
             exit 1
           fi
 
@@ -64,5 +64,3 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
-          body: |
-            See [CHANGELOG.md](https://github.com/${{ github.repository }}/blob/main/CHANGELOG.md) for details.

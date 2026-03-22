@@ -28,29 +28,38 @@ export interface SSHHostConfig {
 }
 
 /**
- * SSH config file parser
+ * SSH config file parser with TTL-based cache invalidation
  */
 export class SSHConfigParser {
     private configPath: string;
     private hosts: Map<string, SSHHostConfig> = new Map();
     private parsed = false;
+    private lastParsedAt = 0;
+    private static readonly CACHE_TTL_MS = 300000; // 5 minutes
 
     constructor(configPath?: string) {
         this.configPath = configPath || path.join(os.homedir(), '.ssh', 'config');
     }
 
     /**
-     * Parses the SSH config file
+     * Parses the SSH config file (with TTL-based caching)
      */
     async parse(): Promise<void> {
-        if (this.parsed) {
+        const now = Date.now();
+
+        // Check if cache is still valid
+        if (this.parsed && (now - this.lastParsedAt) < SSHConfigParser.CACHE_TTL_MS) {
             return;
         }
+
+        // Reset state for re-parsing
+        this.hosts.clear();
 
         try {
             const content = await fs.promises.readFile(this.configPath, 'utf8');
             this.parseContent(content);
             this.parsed = true;
+            this.lastParsedAt = now;
             logger.debug('SSH config parsed successfully', {
                 path: this.configPath,
                 hostCount: this.hosts.size
@@ -62,7 +71,15 @@ export class SSHConfigParser {
                 logger.warn('Failed to parse SSH config', { path: this.configPath, error });
             }
             this.parsed = true;
+            this.lastParsedAt = now;
         }
+    }
+
+    /**
+     * Invalidates the cache, forcing re-parse on next access
+     */
+    invalidateCache(): void {
+        this.lastParsedAt = 0;
     }
 
     /**
@@ -119,7 +136,9 @@ export class SSHConfigParser {
                 break;
             case 'identityfile':
                 // Expand ~ to home directory
-                host.identityFile = value.replace(/^~/, os.homedir());
+                host.identityFile = value.startsWith('~/')
+                    ? path.join(os.homedir(), value.slice(2))
+                    : value.replace(/^~/, os.homedir());
                 break;
             case 'proxyjump':
                 host.proxyJump = value;
@@ -131,7 +150,9 @@ export class SSHConfigParser {
                 host.strictHostKeyChecking = value;
                 break;
             case 'userknownhostsfile':
-                host.userKnownHostsFile = value.replace(/^~/, os.homedir());
+                host.userKnownHostsFile = value.startsWith('~/')
+                    ? path.join(os.homedir(), value.slice(2))
+                    : value.replace(/^~/, os.homedir());
                 break;
             case 'connecttimeout':
                 host.connectTimeout = parseInt(value, 10);
@@ -212,18 +233,30 @@ export class SSHConfigParser {
     }
 }
 
-// Global singleton instance
+const CONFIG_CACHE_TTL_MS = 5 * 60 * 1000;
 let globalConfigParser: SSHConfigParser | null = null;
+let globalConfigParsedAt = 0;
 
 /**
  * Gets the global SSH config parser instance
  */
 export async function getSSHConfigParser(): Promise<SSHConfigParser> {
-    if (!globalConfigParser) {
+    const now = Date.now();
+    if (!globalConfigParser || (now - globalConfigParsedAt) > CONFIG_CACHE_TTL_MS) {
         globalConfigParser = new SSHConfigParser();
         await globalConfigParser.parse();
+        globalConfigParsedAt = now;
     }
     return globalConfigParser;
+}
+
+/**
+ * Invalidates the global SSH config cache
+ */
+export function invalidateSSHConfigCache(): void {
+    globalConfigParser = null;
+    globalConfigParsedAt = 0;
+    logger.debug('SSH config cache invalidated');
 }
 
 /**

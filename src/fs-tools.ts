@@ -3,6 +3,143 @@ import { createFilesystemError, wrapError } from './errors.js';
 import { logger } from './logging.js';
 import { sessionManager } from './session.js';
 import { ErrorCode } from './types.js';
+import type { SFTPWrapper, Stats, FileEntry } from 'ssh2';
+import { metrics } from './metrics.js';
+
+/**
+ * Promisified SFTP operations for ssh2 SFTPWrapper
+ */
+
+function sftpReadFile(sftp: SFTPWrapper, path: string): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    sftp.readFile(path, (err: Error | null | undefined, data: Buffer) => {
+      if (err) reject(err);
+      else resolve(data);
+    });
+  });
+}
+
+function sftpWriteFile(sftp: SFTPWrapper, path: string, data: Buffer): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.writeFile(path, data, {}, (err: Error | null | undefined) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function sftpStat(sftp: SFTPWrapper, path: string): Promise<Stats> {
+  return new Promise((resolve, reject) => {
+    sftp.stat(path, (err: Error | null | undefined, stats: Stats) => {
+      if (err) reject(err);
+      else resolve(stats);
+    });
+  });
+}
+
+function sftpReaddir(sftp: SFTPWrapper, path: string): Promise<FileEntry[]> {
+  return new Promise((resolve, reject) => {
+    sftp.readdir(path, (err: Error | null | undefined, list: FileEntry[]) => {
+      if (err) reject(err);
+      else resolve(list);
+    });
+  });
+}
+
+function sftpMkdir(sftp: SFTPWrapper, path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.mkdir(path, (err: Error | null | undefined) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function sftpRmdir(sftp: SFTPWrapper, path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.rmdir(path, (err: Error | null | undefined) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function sftpUnlink(sftp: SFTPWrapper, path: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.unlink(path, (err: Error | null | undefined) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function sftpRename(sftp: SFTPWrapper, oldPath: string, newPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.rename(oldPath, newPath, (err: Error | null | undefined) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+function sftpChmod(sftp: SFTPWrapper, path: string, mode: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    sftp.chmod(path, mode, (err: Error | null | undefined) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
+/**
+ * Recursively creates directories (mkdir -p equivalent)
+ * ssh2 doesn't have native recursive mkdir, so we implement it manually
+ */
+async function sftpMkdirRecursive(sftp: SFTPWrapper, dirPath: string): Promise<void> {
+  const parts = dirPath.split('/').filter(p => p);
+  let currentPath = dirPath.startsWith('/') ? '' : '.';
+
+  for (const part of parts) {
+    currentPath = currentPath === '' ? `/${part}` : `${currentPath}/${part}`;
+    try {
+      await sftpStat(sftp, currentPath);
+    } catch (err) {
+      // Directory doesn't exist, create it
+      try {
+        await sftpMkdir(sftp, currentPath);
+      } catch (mkdirErr: any) {
+        // Ignore EEXIST errors (race condition)
+        if (mkdirErr.code !== 4) { // SFTP error code 4 = No such file (parent doesn't exist) or already exists
+          throw mkdirErr;
+        }
+      }
+    }
+  }
+}
+
+/**
+ * Recursively removes a directory
+ * ssh2 doesn't have native recursive rmdir, so we implement it manually
+ */
+async function sftpRmdirRecursive(sftp: SFTPWrapper, dirPath: string): Promise<void> {
+  const entries = await sftpReaddir(sftp, dirPath);
+
+  for (const entry of entries) {
+    const entryPath = `${dirPath}/${entry.filename}`;
+    const mode = entry.attrs.mode ?? 0;
+
+    // Check if directory using POSIX mode bits
+    const isDir = (mode & 0o170000) === 0o040000;
+
+    if (isDir) {
+      await sftpRmdirRecursive(sftp, entryPath);
+    } else {
+      await sftpUnlink(sftp, entryPath);
+    }
+  }
+
+  await sftpRmdir(sftp, dirPath);
+}
 
 /**
  * Reads a file from the remote system
@@ -13,15 +150,16 @@ export async function readFile(
   encoding: string = 'utf8'
 ): Promise<string> {
   logger.debug('Reading file', { sessionId, path, encoding });
-  
+
   const session = sessionManager.getSession(sessionId);
   if (!session) {
     throw new Error(`Session ${sessionId} not found or expired`);
   }
-  
+
   try {
-    const data = await session.sftp.get(path);
-    const result = Buffer.isBuffer(data) ? data.toString(encoding as any) : String(data);
+    const data = await sftpReadFile(session.sftp, path);
+    const result = data.toString(encoding as BufferEncoding);
+    metrics.recordFileRead(data.length);
     logger.debug('File read successfully', { sessionId, path, size: result.length });
     return result;
   } catch (error) {
@@ -44,34 +182,35 @@ export async function writeFile(
   mode?: number
 ): Promise<boolean> {
   logger.debug('Writing file', { sessionId, path, size: data.length, mode });
-  
+
   const session = sessionManager.getSession(sessionId);
   if (!session) {
     throw new Error(`Session ${sessionId} not found or expired`);
   }
-  
+
   try {
     // Use atomic write: write to temp file, then rename
     const tempPath = `${path}.tmp.${Date.now()}`;
-    
+
     try {
       // Write to temporary file
-      await session.sftp.put(Buffer.from(data, 'utf8'), tempPath);
-      
+      await sftpWriteFile(session.sftp, tempPath, Buffer.from(data, 'utf8'));
+
       // Set permissions if specified
       if (mode !== undefined) {
-        await session.sftp.chmod(tempPath, mode);
+        await sftpChmod(session.sftp, tempPath, mode);
       }
-      
+
       // Atomic rename
-      await session.sftp.rename(tempPath, path);
-      
+      await sftpRename(session.sftp, tempPath, path);
+      metrics.recordFileWrite(Buffer.byteLength(data, 'utf8'));
+
       logger.debug('File written successfully', { sessionId, path });
       return true;
     } catch (writeError) {
       // Clean up temp file on failure
       try {
-        await session.sftp.delete(tempPath);
+        await sftpUnlink(session.sftp, tempPath);
         logger.debug('Cleaned up temp file after error', { tempPath });
       } catch (cleanupError) {
         logger.warn('Failed to clean up temp file', { tempPath, cleanupError });
@@ -96,31 +235,40 @@ export async function statFile(
   path: string
 ): Promise<FileStatInfo> {
   logger.debug('Getting file stats', { sessionId, path });
-  
+
   const session = sessionManager.getSession(sessionId);
   if (!session) {
     throw new Error(`Session ${sessionId} not found or expired`);
   }
-  
+
   try {
-    const stats = await session.sftp.stat(path);
-    
+    const stats = await sftpStat(session.sftp, path);
+
+    // Safe type detection using POSIX mode bits (GÖREV 3.2)
     let type: FileStatInfo['type'] = 'other';
-    if ((stats as any).isFile && (stats as any).isFile()) {
+    const mode = stats.mode ?? 0;
+
+    // POSIX mode bit masks for file type detection
+    if ((mode & 0o170000) === 0o100000) {
       type = 'file';
-    } else if ((stats as any).isDirectory && (stats as any).isDirectory()) {
+    } else if ((mode & 0o170000) === 0o040000) {
       type = 'directory';
-    } else if ((stats as any).isSymbolicLink && (stats as any).isSymbolicLink()) {
+    } else if ((mode & 0o170000) === 0o120000) {
       type = 'symlink';
+    } else if (typeof stats.isFile === 'function') {
+      // Fallback: use method if available
+      if (stats.isFile()) type = 'file';
+      else if (stats.isDirectory()) type = 'directory';
+      else if (stats.isSymbolicLink?.()) type = 'symlink';
     }
-    
+
     const statInfo: FileStatInfo = {
-      size: stats.size,
-      mtime: new Date((stats as any).mtime ? (stats as any).mtime * 1000 : Date.now()),
-      mode: stats.mode,
+      size: stats.size ?? 0,
+      mtime: new Date(typeof stats.mtime === 'number' ? stats.mtime * 1000 : Date.now()),
+      mode,
       type
     };
-    
+
     logger.debug('File stats retrieved', { sessionId, path, type, size: stats.size });
     return statInfo;
   } catch (error) {
@@ -143,44 +291,48 @@ export async function listDirectory(
   limit: number = 100
 ): Promise<DirListResult> {
   logger.debug('Listing directory', { sessionId, path, page, limit });
-  
+
   const session = sessionManager.getSession(sessionId);
   if (!session) {
     throw new Error(`Session ${sessionId} not found or expired`);
   }
-  
+
   try {
-    const fileList = await session.sftp.list(path);
-    
+    const fileList = await sftpReaddir(session.sftp, path);
+
     // Convert to our DirEntry format
-    const entries: DirEntry[] = fileList.map((item: any) => {
+    const entries: DirEntry[] = fileList.map((item: FileEntry) => {
       let type: DirEntry['type'] = 'other';
-      if (item.type === 'd') {
-        type = 'directory';
-      } else if (item.type === '-') {
+      const attrs = item.attrs;
+
+      // Use POSIX mode bits for type detection
+      const mode = attrs.mode ?? 0;
+      if ((mode & 0o170000) === 0o100000) {
         type = 'file';
-      } else if (item.type === 'l') {
+      } else if ((mode & 0o170000) === 0o040000) {
+        type = 'directory';
+      } else if ((mode & 0o170000) === 0o120000) {
         type = 'symlink';
       }
-      
+
       return {
-        name: item.name,
+        name: item.filename,
         type,
-        size: item.size,
-        mtime: new Date(item.modifyTime),
-        mode: item.rights ? parseInt(item.rights.toString(), 8) : undefined
+        size: attrs.size,
+        mtime: new Date(typeof attrs.mtime === 'number' ? attrs.mtime * 1000 : Date.now()),
+        mode: attrs.mode
       };
     });
-    
+
     // Apply pagination if requested
     if (page !== undefined) {
       const startIndex = page * limit;
       const endIndex = startIndex + limit;
       const paginatedEntries = entries.slice(startIndex, endIndex);
-      
+
       const hasMore = endIndex < entries.length;
       const nextToken = hasMore ? String(page + 1) : undefined;
-      
+
       logger.debug('Directory listed with pagination', {
         sessionId,
         path,
@@ -189,13 +341,13 @@ export async function listDirectory(
         returned: paginatedEntries.length,
         hasMore
       });
-      
+
       return {
         entries: paginatedEntries,
         nextToken
       };
     }
-    
+
     logger.debug('Directory listed', { sessionId, path, count: entries.length });
     return { entries };
   } catch (error) {
@@ -216,14 +368,14 @@ export async function makeDirectories(
   path: string
 ): Promise<boolean> {
   logger.debug('Creating directories', { sessionId, path });
-  
+
   const session = sessionManager.getSession(sessionId);
   if (!session) {
     throw new Error(`Session ${sessionId} not found or expired`);
   }
-  
+
   try {
-    await session.sftp.mkdir(path, true); // recursive = true
+    await sftpMkdirRecursive(session.sftp, path);
     logger.debug('Directories created successfully', { sessionId, path });
     return true;
   } catch (error) {
@@ -244,24 +396,24 @@ export async function removeRecursive(
   path: string
 ): Promise<boolean> {
   logger.debug('Removing path recursively', { sessionId, path });
-  
+
   const session = sessionManager.getSession(sessionId);
   if (!session) {
     throw new Error(`Session ${sessionId} not found or expired`);
   }
-  
+
   try {
     // Check if path exists and get its type
-    const stats = await session.sftp.stat(path);
-    
-    if ((stats as any).isDirectory && (stats as any).isDirectory()) {
+    const stats = await sftpStat(session.sftp, path);
+
+    if (stats.isDirectory()) {
       // Remove directory recursively
-      await session.sftp.rmdir(path, true); // recursive = true
+      await sftpRmdirRecursive(session.sftp, path);
     } else {
       // Remove file
-      await session.sftp.delete(path);
+      await sftpUnlink(session.sftp, path);
     }
-    
+
     logger.debug('Path removed successfully', { sessionId, path });
     return true;
   } catch (error) {
@@ -283,14 +435,14 @@ export async function renameFile(
   to: string
 ): Promise<boolean> {
   logger.debug('Renaming file', { sessionId, from, to });
-  
+
   const session = sessionManager.getSession(sessionId);
   if (!session) {
     throw new Error(`Session ${sessionId} not found or expired`);
   }
-  
+
   try {
-    await session.sftp.rename(from, to);
+    await sftpRename(session.sftp, from, to);
     logger.debug('File renamed successfully', { sessionId, from, to });
     return true;
   } catch (error) {

@@ -2,7 +2,7 @@
  * Logging utilities with sensitive data redaction
  */
 
-const SENSITIVE_FIELDS = ['password', 'privateKey', 'passphrase', 'sudoPassword'];
+const SENSITIVE_FIELDS = ['password', 'privatekey', 'passphrase', 'sudopassword'];
 const REDACTED = '****';
 
 /**

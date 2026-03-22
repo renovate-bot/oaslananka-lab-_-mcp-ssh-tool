@@ -31,6 +31,8 @@ import { addSafetyWarningToResult } from './safety.js';
 import { execWithStreaming } from './streaming.js';
 import { createLocalForward, createRemoteForward, closeTunnel, listTunnels } from './tunnel.js';
 import { uploadFileWithProgress, downloadFileWithProgress } from './transfer.js';
+import { rateLimiter } from './rate-limiter.js';
+import { metrics } from './metrics.js';
 import {
   ConnectionParamsSchema,
   SessionIdSchema,
@@ -82,7 +84,7 @@ export class SSHMCPServer {
     this.server = new Server(
       {
         name: 'ssh-mcp-server',
-        version: '1.2.7',
+        version: '1.3.0',
       },
       {
         capabilities: {
@@ -289,7 +291,7 @@ export class SSHMCPServer {
               properties: {
                 sessionId: { type: 'string', description: 'SSH session ID' },
                 name: { type: 'string', description: 'Service name' },
-                state: { type: 'string', enum: ['started', 'stopped', 'enabled', 'disabled'], description: 'Desired state' }
+                state: { type: 'string', enum: ['started', 'stopped', 'restarted', 'enabled', 'disabled'], description: 'Desired state' }
               },
               required: ['sessionId', 'name', 'state']
             }
@@ -316,9 +318,10 @@ export class SSHMCPServer {
               properties: {
                 sessionId: { type: 'string', description: 'SSH session ID' },
                 path: { type: 'string', description: 'File path to patch' },
-                patch: { type: 'string', description: 'Patch content (unified diff format)' }
+                diff: { type: 'string', description: 'Patch content (unified diff format)' },
+                sudoPassword: { type: 'string', description: 'Optional sudo password' }
               },
-              required: ['sessionId', 'path', 'patch']
+              required: ['sessionId', 'path', 'diff']
             }
           },
           {
@@ -373,6 +376,17 @@ export class SSHMCPServer {
               },
               required: ['hostAlias']
             }
+          },
+          {
+            name: 'get_metrics',
+            description: 'Returns server metrics including session counts, command statistics, and uptime',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                format: { type: 'string', enum: ['json', 'prometheus'], description: 'Output format (default: json)' }
+              },
+              required: []
+            }
           }
         ]
       };
@@ -383,11 +397,29 @@ export class SSHMCPServer {
       const { name, arguments: args } = request.params;
       const toolName = TOOL_ALIASES[name] ?? name;
 
+      // Rate limiting check
+      const rateCheck = rateLimiter.check(toolName);
+      if (!rateCheck.allowed) {
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              error: true,
+              code: 'ERATELIMIT',
+              message: `Rate limit exceeded for tool: ${toolName}`,
+              resetIn: rateCheck.resetIn
+            }, null, 2)
+          }],
+          isError: true
+        };
+      }
+
       try {
         switch (toolName) {
           case 'ssh_open_session': {
             const params = ConnectionParamsSchema.parse(args);
             const result = await sessionManager.openSession(params);
+            metrics.recordSessionCreated();
             logger.info('SSH session opened', { sessionId: result.sessionId, host: redactSensitiveData(params.host) });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
@@ -395,6 +427,9 @@ export class SSHMCPServer {
           case 'ssh_close_session': {
             const { sessionId } = SessionIdSchema.parse(args);
             const result = await sessionManager.closeSession(sessionId);
+            if (result) {
+              metrics.recordSessionClosed();
+            }
             logger.info('SSH session closed', { sessionId });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
@@ -408,6 +443,7 @@ export class SSHMCPServer {
               params.env as Record<string, string>,
               params.timeoutMs
             );
+            metrics.recordCommand(result.durationMs, result.code === 0);
             // Add safety warning (never blocks, only warns)
             const resultWithWarning = addSafetyWarningToResult(params.command, result);
             logger.info('Command executed', { sessionId: params.sessionId, command: redactSensitiveData(params.command) });
@@ -417,6 +453,7 @@ export class SSHMCPServer {
           case 'proc_sudo': {
             const params = SudoSchema.parse(args);
             const result = await execSudo(params.sessionId, params.command, params.password, params.cwd, params.timeoutMs);
+            metrics.recordCommand(result.durationMs, result.code === 0);
             // Add safety warning (never blocks, only warns)
             const resultWithWarning = addSafetyWarningToResult(params.command, result);
             logger.info('Sudo command executed', { sessionId: params.sessionId, command: redactSensitiveData(params.command) });
@@ -474,8 +511,8 @@ export class SSHMCPServer {
 
           case 'ensure_package': {
             const params = EnsurePackageSchema.parse(args);
-            const result = await ensurePackage(params.sessionId, params.name, params.sudoPassword);
-            logger.info('Package ensured', { sessionId: params.sessionId, name: params.name });
+            const result = await ensurePackage(params.sessionId, params.name, params.sudoPassword, params.state);
+            logger.info('Package ensured', { sessionId: params.sessionId, name: params.name, state: params.state });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
 
@@ -488,8 +525,8 @@ export class SSHMCPServer {
 
           case 'ensure_lines_in_file': {
             const params = EnsureLinesSchema.parse(args);
-            const result = await ensureLinesInFile(params.sessionId, params.path, params.lines, params.createIfMissing, params.sudoPassword);
-            logger.info('Lines ensured in file', { sessionId: params.sessionId, path: params.path });
+            const result = await ensureLinesInFile(params.sessionId, params.path, params.lines, params.createIfMissing, params.sudoPassword, params.state);
+            logger.info('Lines ensured in file', { sessionId: params.sessionId, path: params.path, state: params.state });
             return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }] };
           }
 
@@ -577,6 +614,17 @@ export class SSHMCPServer {
             const resolved = await resolveSSHHost(hostAlias);
             logger.info('Host resolved', { hostAlias, resolved: resolved.host });
             return { content: [{ type: 'text', text: JSON.stringify(resolved, null, 2) }] };
+          }
+
+          case 'get_metrics': {
+            const { format = 'json' } = z.object({ format: z.enum(['json', 'prometheus']).optional() }).parse(args || {});
+            if (format === 'prometheus') {
+              const prometheusOutput = metrics.exportPrometheus();
+              return { content: [{ type: 'text', text: prometheusOutput }] };
+            }
+            const metricsData = metrics.getMetrics();
+            logger.debug('Metrics retrieved');
+            return { content: [{ type: 'text', text: JSON.stringify(metricsData, null, 2) }] };
           }
 
           default:

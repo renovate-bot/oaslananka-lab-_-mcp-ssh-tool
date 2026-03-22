@@ -34,16 +34,41 @@ function sanitizePackageName(name: string): string {
 }
 
 /**
- * Ensures a package is installed on the system
+ * Gets the remove command for the appropriate package manager
+ */
+function getRemoveCommand(pm: PackageManager, packageName: string): string {
+  switch (pm) {
+    case 'apt':
+      return `apt-get remove -y ${packageName}`;
+    case 'dnf':
+      return `dnf remove -y ${packageName}`;
+    case 'yum':
+      return `yum remove -y ${packageName}`;
+    case 'pacman':
+      return `pacman -R --noconfirm ${packageName}`;
+    case 'apk':
+      return `apk del ${packageName}`;
+    case 'zypper':
+      return `zypper remove -y ${packageName}`;
+    case 'brew':
+      return `brew uninstall ${packageName}`;
+    default:
+      throw createPackageManagerError(`Unsupported package manager: ${pm}`);
+  }
+}
+
+/**
+ * Ensures a package is installed or removed on the system
  */
 export async function ensurePackage(
   sessionId: string,
   packageName: string,
-  sudoPassword?: string
+  sudoPassword?: string,
+  state: 'present' | 'absent' = 'present'
 ): Promise<PackageResult> {
   // Validate and sanitize package name to prevent injection
   const safePackageName = sanitizePackageName(packageName);
-  logger.debug('Ensuring package is installed', { sessionId, packageName: safePackageName });
+  logger.debug('Ensuring package state', { sessionId, packageName: safePackageName, state });
 
   const session = sessionManager.getSession(sessionId);
   if (!session) {
@@ -70,8 +95,49 @@ export async function ensurePackage(
 
     logger.debug('Detected package manager', { sessionId, pm });
 
-    // Check if package is already installed
+    // Check if package is installed
     const isInstalled = await checkPackageInstalled(sessionId, safePackageName, pm);
+
+    // Handle absent state (remove package)
+    if (state === 'absent') {
+      if (!isInstalled) {
+        logger.info('Package already not installed', { sessionId, packageName: safePackageName });
+        return {
+          ok: true,
+          pm,
+          code: 0,
+          stdout: `Package ${safePackageName} is not installed`,
+          stderr: ''
+        };
+      }
+
+      const removeCommand = getRemoveCommand(pm, safePackageName);
+      logger.debug('Removing package', { sessionId, packageName: safePackageName, command: removeCommand });
+
+      const runRemover = pm === 'brew'
+        ? () => execCommand(sessionId, removeCommand)
+        : () => execSudo(sessionId, removeCommand, sudoPassword);
+
+      const result = await runRemover();
+
+      const packageResult: PackageResult = {
+        ok: result.code === 0,
+        pm,
+        code: result.code,
+        stdout: result.stdout,
+        stderr: result.stderr
+      };
+
+      if (result.code === 0) {
+        logger.info('Package removed successfully', { sessionId, packageName: safePackageName });
+      } else {
+        logger.error('Package removal failed', { sessionId, packageName: safePackageName, code: result.code });
+      }
+
+      return packageResult;
+    }
+
+    // Handle present state (install package)
     if (isInstalled) {
       logger.info('Package already installed', { sessionId, packageName: safePackageName });
       return {
@@ -110,7 +176,7 @@ export async function ensurePackage(
     return packageResult;
 
   } catch (error) {
-    logger.error('Failed to ensure package', { sessionId, packageName, error });
+    logger.error('Failed to ensure package', { sessionId, packageName, state, error });
     throw error;
   }
 }
@@ -229,16 +295,17 @@ export async function ensureService(
 }
 
 /**
- * Ensures specific lines exist in a file
+ * Ensures specific lines exist or are absent in a file
  */
 export async function ensureLinesInFile(
   sessionId: string,
   filePath: string,
   lines: string[],
   createIfMissing: boolean = true,
-  sudoPassword?: string
+  sudoPassword?: string,
+  state: 'present' | 'absent' = 'present'
 ): Promise<LinesInFileResult> {
-  logger.debug('Ensuring lines in file', { sessionId, filePath, lineCount: lines.length });
+  logger.debug('Ensuring lines in file', { sessionId, filePath, lineCount: lines.length, state });
 
   try {
     const osInfo = await sessionManager.getOSInfo(sessionId);
@@ -249,14 +316,78 @@ export async function ensureLinesInFile(
     if (await pathExists(sessionId, filePath)) {
       fileExists = true;
       fileContent = await readFile(sessionId, filePath);
+    } else if (state === 'absent') {
+      // File doesn't exist and we want lines absent - nothing to do
+      logger.info('File does not exist, lines already absent', { sessionId, filePath });
+      return {
+        ok: true,
+        added: 0
+      };
     } else if (!createIfMissing) {
       throw createFilesystemError(
         `File ${filePath} does not exist and createIfMissing is false`
       );
     }
 
-    // Check which lines are missing
     const existingLines = fileContent.split('\n');
+
+    // Handle absent state (remove lines)
+    if (state === 'absent') {
+      const filteredLines = existingLines.filter(line => !lines.includes(line));
+
+      if (filteredLines.length === existingLines.length) {
+        logger.info('No lines to remove from file', { sessionId, filePath });
+        return {
+          ok: true,
+          added: 0
+        };
+      }
+
+      const removedCount = existingLines.length - filteredLines.length;
+      const newContent = filteredLines.join('\n');
+
+      // Write file (may need sudo)
+      try {
+        await writeFile(sessionId, filePath, newContent);
+      } catch (error) {
+        if (sudoPassword) {
+          // Try with sudo by writing to temp file and moving
+          const tempDir = resolveRemoteTempDir(osInfo);
+          const baseTempDir = tempDir.replace(/\/+$/, '');
+          const tempFile = `${baseTempDir}/ssh-mcp-${Date.now()}.tmp`;
+          await writeFile(sessionId, tempFile, newContent);
+
+          const moveResult = await execSudo(
+            sessionId,
+            `mv ${tempFile} ${filePath}`,
+            sudoPassword
+          );
+
+          if (moveResult.code !== 0) {
+            throw createFilesystemError(
+              `Failed to move temporary file to ${filePath}`,
+              'Check file permissions and sudo access'
+            );
+          }
+        } else {
+          throw error;
+        }
+      }
+
+      logger.info('Lines removed from file successfully', {
+        sessionId,
+        filePath,
+        removed: removedCount
+      });
+
+      return {
+        ok: true,
+        added: -removedCount  // Negative number indicates removed lines
+      };
+    }
+
+    // Handle present state (add lines)
+    // Check which lines are missing
     const missingLines: string[] = [];
 
     for (const line of lines) {
@@ -318,7 +449,7 @@ export async function ensureLinesInFile(
     };
 
   } catch (error) {
-    logger.error('Failed to ensure lines in file', { sessionId, filePath, error });
+    logger.error('Failed to ensure lines in file', { sessionId, filePath, state, error });
     throw error;
   }
 }

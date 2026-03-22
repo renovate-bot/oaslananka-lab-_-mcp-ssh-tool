@@ -3,6 +3,8 @@ node_modules/
 
 # Build outputs
 dist/
+coverage/
+test-results/
 
 # Environment variables
 .env
@@ -26,3 +28,10 @@ id_*
 
 # Package files
 *.tgz
+
+# Azure Pipelines local
+.azure/local/
+
+# Temp
+*.tmp
+*.temp
