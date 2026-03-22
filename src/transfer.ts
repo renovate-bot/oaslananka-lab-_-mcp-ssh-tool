@@ -96,6 +96,11 @@ export async function uploadFileWithProgress(
   if (!session) {
     throw createFilesystemError("Session not found or expired");
   }
+  if (!session.sftp) {
+    throw createFilesystemError("SFTP subsystem is unavailable for this session");
+  }
+
+  const sftp = session.sftp;
 
   const startTime = Date.now();
   const filename = path.basename(localPath);
@@ -105,18 +110,11 @@ export async function uploadFileWithProgress(
     const stats = await fs.promises.stat(localPath);
     const totalSize = stats.size;
 
-    let transferred = 0;
-    let lastProgressTime = startTime;
-    let lastTransferred = 0;
-
     // Read file and upload with progress simulation
     const fileContent = await fs.promises.readFile(localPath);
 
     // Upload using SFTP
-    await sftpWriteFile(session.sftp, remotePath, fileContent);
-
-    // Final progress update
-    transferred = totalSize;
+    await sftpWriteFile(sftp, remotePath, fileContent);
 
     if (onProgress) {
       const now = Date.now();
@@ -177,17 +175,22 @@ export async function downloadFileWithProgress(
   if (!session) {
     throw createFilesystemError("Session not found or expired");
   }
+  if (!session.sftp) {
+    throw createFilesystemError("SFTP subsystem is unavailable for this session");
+  }
+
+  const sftp = session.sftp;
 
   const startTime = Date.now();
   const filename = path.basename(remotePath);
 
   try {
     // Get remote file size
-    const stats = await sftpStat(session.sftp, remotePath);
+    const stats = await sftpStat(sftp, remotePath);
     const totalSize = stats.size ?? 0;
 
     // Download file
-    const data = await sftpReadFile(session.sftp, remotePath);
+    const data = await sftpReadFile(sftp, remotePath);
 
     // Write to local file
     await fs.promises.writeFile(localPath, data);

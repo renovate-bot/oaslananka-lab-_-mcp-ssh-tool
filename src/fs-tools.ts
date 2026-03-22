@@ -1,15 +1,56 @@
-import { FileStatInfo, DirEntry, DirListResult } from "./types.js";
+import { FileStatInfo, DirEntry, DirListResult, ErrorCode } from "./types.js";
 import { createFilesystemError, wrapError } from "./errors.js";
 import { logger } from "./logging.js";
 import { sessionManager } from "./session.js";
-import { ErrorCode } from "./types.js";
 import type { SFTPWrapper, Stats, FileEntry } from "ssh2";
+import { buildRemoteCommand } from "./shell.js";
 import { metrics } from "./metrics.js";
+
+function shellQuote(value: string): string {
+  return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+}
+
+async function execFallback(
+  sessionId: string,
+  command: string,
+): Promise<string> {
+  const session = sessionManager.getSession(sessionId);
+  if (!session) {
+    throw new Error(`Session ${sessionId} not found or expired`);
+  }
+
+  const osInfo = await sessionManager.getOSInfo(sessionId);
+  const shellCommand = buildRemoteCommand(command, osInfo);
+  const result = await session.ssh.execCommand(shellCommand);
+
+  if ((result.code || 0) !== 0) {
+    throw new Error(
+      result.stderr ||
+        result.stdout ||
+        `Remote command failed with code ${result.code}`,
+    );
+  }
+
+  return result.stdout || "";
+}
+
+function hasSftp(session: { sftp?: unknown } | undefined): boolean {
+  return !!session?.sftp;
+}
+
+function getSftpOrThrow(session: { sftp?: SFTPWrapper }) {
+  if (!session.sftp) {
+    throw createFilesystemError(
+      "SFTP subsystem is unavailable for this session",
+    );
+  }
+
+  return session.sftp;
+}
 
 /**
  * Promisified SFTP operations for ssh2 SFTPWrapper
  */
-
 function sftpReadFile(sftp: SFTPWrapper, path: string): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     sftp.readFile(path, (err: Error | null | undefined, data: Buffer) => {
@@ -105,27 +146,23 @@ function sftpChmod(
 
 /**
  * Recursively creates directories (mkdir -p equivalent)
- * ssh2 doesn't have native recursive mkdir, so we implement it manually
  */
 async function sftpMkdirRecursive(
   sftp: SFTPWrapper,
   dirPath: string,
 ): Promise<void> {
-  const parts = dirPath.split("/").filter((p) => p);
+  const parts = dirPath.split("/").filter((part) => part);
   let currentPath = dirPath.startsWith("/") ? "" : ".";
 
   for (const part of parts) {
     currentPath = currentPath === "" ? `/${part}` : `${currentPath}/${part}`;
     try {
       await sftpStat(sftp, currentPath);
-    } catch (err) {
-      // Directory doesn't exist, create it
+    } catch {
       try {
         await sftpMkdir(sftp, currentPath);
       } catch (mkdirErr: any) {
-        // Ignore EEXIST errors (race condition)
         if (mkdirErr.code !== 4) {
-          // SFTP error code 4 = No such file (parent doesn't exist) or already exists
           throw mkdirErr;
         }
       }
@@ -135,7 +172,6 @@ async function sftpMkdirRecursive(
 
 /**
  * Recursively removes a directory
- * ssh2 doesn't have native recursive rmdir, so we implement it manually
  */
 async function sftpRmdirRecursive(
   sftp: SFTPWrapper,
@@ -146,8 +182,6 @@ async function sftpRmdirRecursive(
   for (const entry of entries) {
     const entryPath = `${dirPath}/${entry.filename}`;
     const mode = entry.attrs.mode ?? 0;
-
-    // Check if directory using POSIX mode bits
     const isDir = (mode & 0o170000) === 0o040000;
 
     if (isDir) {
@@ -176,7 +210,19 @@ export async function readFile(
   }
 
   try {
-    const data = await sftpReadFile(session.sftp, path);
+    if (!hasSftp(session)) {
+      const data = await execFallback(sessionId, `cat ${shellQuote(path)}`);
+      metrics.recordFileRead(Buffer.byteLength(data, "utf8"));
+      logger.debug("File read successfully via SSH fallback", {
+        sessionId,
+        path,
+        size: data.length,
+      });
+      return data;
+    }
+
+    const sftp = getSftpOrThrow(session);
+    const data = await sftpReadFile(sftp, path);
     const result = data.toString(encoding as BufferEncoding);
     metrics.recordFileRead(data.length);
     logger.debug("File read successfully", {
@@ -212,28 +258,44 @@ export async function writeFile(
   }
 
   try {
-    // Use atomic write: write to temp file, then rename
+    if (!hasSftp(session)) {
+      const tempPath = `${path}.tmp.${Date.now()}`;
+      const chmodCommand =
+        mode !== undefined
+          ? `chmod ${mode.toString(8)} ${shellQuote(tempPath)}\n`
+          : "";
+
+      await execFallback(
+        sessionId,
+        `printf %s ${shellQuote(data)} > ${shellQuote(tempPath)}\n${chmodCommand}mv ${shellQuote(tempPath)} ${shellQuote(path)}`,
+      );
+
+      metrics.recordFileWrite(Buffer.byteLength(data, "utf8"));
+      logger.debug("File written successfully via SSH fallback", {
+        sessionId,
+        path,
+      });
+      return true;
+    }
+
+    const sftp = getSftpOrThrow(session);
     const tempPath = `${path}.tmp.${Date.now()}`;
 
     try {
-      // Write to temporary file
-      await sftpWriteFile(session.sftp, tempPath, Buffer.from(data, "utf8"));
+      await sftpWriteFile(sftp, tempPath, Buffer.from(data, "utf8"));
 
-      // Set permissions if specified
       if (mode !== undefined) {
-        await sftpChmod(session.sftp, tempPath, mode);
+        await sftpChmod(sftp, tempPath, mode);
       }
 
-      // Atomic rename
-      await sftpRename(session.sftp, tempPath, path);
+      await sftpRename(sftp, tempPath, path);
       metrics.recordFileWrite(Buffer.byteLength(data, "utf8"));
 
       logger.debug("File written successfully", { sessionId, path });
       return true;
     } catch (writeError) {
-      // Clean up temp file on failure
       try {
-        await sftpUnlink(session.sftp, tempPath);
+        await sftpUnlink(sftp, tempPath);
         logger.debug("Cleaned up temp file after error", { tempPath });
       } catch (cleanupError) {
         logger.warn("Failed to clean up temp file", { tempPath, cleanupError });
@@ -265,13 +327,27 @@ export async function statFile(
   }
 
   try {
-    const stats = await sftpStat(session.sftp, path);
+    if (!hasSftp(session)) {
+      const output = await execFallback(
+        sessionId,
+        `target=${shellQuote(path)}; if [ -L "$target" ]; then type=symlink; elif [ -d "$target" ]; then type=directory; elif [ -f "$target" ]; then type=file; else type=other; fi; size=$(stat -c '%s' "$target"); mtime=$(stat -c '%Y' "$target"); mode=$(stat -c '%a' "$target"); printf '%s\t%s\t%s\t%s' "$type" "$size" "$mtime" "$mode"`,
+      );
 
-    // Safe type detection using POSIX mode bits (GÖREV 3.2)
+      const [type, size, mtime, mode] = output.trim().split("\t");
+      return {
+        size: Number(size),
+        mtime: new Date(Number(mtime) * 1000),
+        mode: parseInt(mode, 8),
+        type: (type as FileStatInfo["type"]) || "other",
+      };
+    }
+
+    const sftp = getSftpOrThrow(session);
+    const stats = await sftpStat(sftp, path);
+
     let type: FileStatInfo["type"] = "other";
     const mode = stats.mode ?? 0;
 
-    // POSIX mode bit masks for file type detection
     if ((mode & 0o170000) === 0o100000) {
       type = "file";
     } else if ((mode & 0o170000) === 0o040000) {
@@ -279,7 +355,6 @@ export async function statFile(
     } else if ((mode & 0o170000) === 0o120000) {
       type = "symlink";
     } else if (typeof stats.isFile === "function") {
-      // Fallback: use method if available
       if (stats.isFile()) type = "file";
       else if (stats.isDirectory()) type = "directory";
       else if (stats.isSymbolicLink?.()) type = "symlink";
@@ -328,15 +403,45 @@ export async function listDirectory(
   }
 
   try {
-    const fileList = await sftpReaddir(session.sftp, path);
+    if (!hasSftp(session)) {
+      const output = await execFallback(
+        sessionId,
+        `dir=${shellQuote(path)}; for item in "$dir"/* "$dir"/.[!.]* "$dir"/..?*; do [ -e "$item" ] || continue; name=$(basename "$item"); if [ -L "$item" ]; then type=symlink; elif [ -d "$item" ]; then type=directory; elif [ -f "$item" ]; then type=file; else type=other; fi; size=$(stat -c '%s' "$item" 2>/dev/null || echo 0); mtime=$(stat -c '%Y' "$item" 2>/dev/null || echo 0); printf '%s\\t%s\\t%s\\t%s\\n' "$name" "$type" "$size" "$mtime"; done`,
+      );
 
-    // Convert to our DirEntry format
+      const entries: DirEntry[] = output
+        .split(/\r?\n/)
+        .filter(Boolean)
+        .map((line) => {
+          const [name, typeName, size, mtime] = line.split("\t");
+          return {
+            name,
+            type: (typeName as DirEntry["type"]) || "other",
+            size: Number(size),
+            mtime: new Date(Number(mtime) * 1000),
+          };
+        });
+
+      if (page !== undefined) {
+        const startIndex = page * limit;
+        const endIndex = startIndex + limit;
+        return {
+          entries: entries.slice(startIndex, endIndex),
+          nextToken: endIndex < entries.length ? String(page + 1) : undefined,
+        };
+      }
+
+      return { entries };
+    }
+
+    const sftp = getSftpOrThrow(session);
+    const fileList = await sftpReaddir(sftp, path);
+
     const entries: DirEntry[] = fileList.map((item: FileEntry) => {
       let type: DirEntry["type"] = "other";
       const attrs = item.attrs;
-
-      // Use POSIX mode bits for type detection
       const mode = attrs.mode ?? 0;
+
       if ((mode & 0o170000) === 0o100000) {
         type = "file";
       } else if ((mode & 0o170000) === 0o040000) {
@@ -356,12 +461,10 @@ export async function listDirectory(
       };
     });
 
-    // Apply pagination if requested
     if (page !== undefined) {
       const startIndex = page * limit;
       const endIndex = startIndex + limit;
       const paginatedEntries = entries.slice(startIndex, endIndex);
-
       const hasMore = endIndex < entries.length;
       const nextToken = hasMore ? String(page + 1) : undefined;
 
@@ -411,7 +514,17 @@ export async function makeDirectories(
   }
 
   try {
-    await sftpMkdirRecursive(session.sftp, path);
+    if (!hasSftp(session)) {
+      await execFallback(sessionId, `mkdir -p ${shellQuote(path)}`);
+      logger.debug("Directories created successfully via SSH fallback", {
+        sessionId,
+        path,
+      });
+      return true;
+    }
+
+    const sftp = getSftpOrThrow(session);
+    await sftpMkdirRecursive(sftp, path);
     logger.debug("Directories created successfully", { sessionId, path });
     return true;
   } catch (error) {
@@ -439,15 +552,24 @@ export async function removeRecursive(
   }
 
   try {
-    // Check if path exists and get its type
-    const stats = await sftpStat(session.sftp, path);
+    if (!hasSftp(session)) {
+      await execFallback(sessionId, `rm -rf ${shellQuote(path)}`);
+      logger.debug("Path removed successfully via SSH fallback", {
+        sessionId,
+        path,
+      });
+      return true;
+    }
 
-    if (stats.isDirectory()) {
-      // Remove directory recursively
-      await sftpRmdirRecursive(session.sftp, path);
+    const sftp = getSftpOrThrow(session);
+    const stats = await sftpStat(sftp, path);
+    const mode = stats.mode ?? 0;
+    const isDirectory = (mode & 0o170000) === 0o040000;
+
+    if (isDirectory) {
+      await sftpRmdirRecursive(sftp, path);
     } else {
-      // Remove file
-      await sftpUnlink(session.sftp, path);
+      await sftpUnlink(sftp, path);
     }
 
     logger.debug("Path removed successfully", { sessionId, path });
@@ -478,7 +600,18 @@ export async function renameFile(
   }
 
   try {
-    await sftpRename(session.sftp, from, to);
+    if (!hasSftp(session)) {
+      await execFallback(sessionId, `mv ${shellQuote(from)} ${shellQuote(to)}`);
+      logger.debug("File renamed successfully via SSH fallback", {
+        sessionId,
+        from,
+        to,
+      });
+      return true;
+    }
+
+    const sftp = getSftpOrThrow(session);
+    await sftpRename(sftp, from, to);
     logger.debug("File renamed successfully", { sessionId, from, to });
     return true;
   } catch (error) {
@@ -501,7 +634,7 @@ export async function pathExists(
   try {
     await statFile(sessionId, path);
     return true;
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -527,7 +660,7 @@ export async function isDirectory(
   try {
     const stats = await statFile(sessionId, path);
     return stats.type === "directory";
-  } catch (error) {
+  } catch {
     return false;
   }
 }
@@ -542,7 +675,7 @@ export async function isFile(
   try {
     const stats = await statFile(sessionId, path);
     return stats.type === "file";
-  } catch (error) {
+  } catch {
     return false;
   }
 }

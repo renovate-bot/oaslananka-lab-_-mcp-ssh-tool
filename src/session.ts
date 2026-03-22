@@ -7,7 +7,6 @@ import {
   ConnectionParams,
   SessionInfo,
   SessionResult,
-  AuthConfig,
   OSInfo,
 } from "./types.js";
 import {
@@ -19,11 +18,12 @@ import { logger } from "./logging.js";
 import { detectOS } from "./detect.js";
 
 /**
- * SSH session with connection and SFTP client (using NodeSSH internal SFTP)
+ * SSH session with connection and optional SFTP client.
+ * Some targets expose command execution but do not provide the SFTP subsystem.
  */
 export interface SSHSession {
   ssh: NodeSSH;
-  sftp: SFTPWrapper; // ssh2's native SFTP channel
+  sftp?: SFTPWrapper;
   info: SessionInfo;
   connectionParams?: ConnectionParams; // For auto-reconnect
   osInfo?: OSInfo;
@@ -99,7 +99,6 @@ export class SessionManager {
       const ssh = new NodeSSH();
       const authConfig = await this.buildAuthConfig(params);
 
-      // Check env vars for host key checking and known hosts
       const strictHostKey =
         params.strictHostKeyChecking ??
         process.env.STRICT_HOST_KEY_CHECKING === "true";
@@ -111,9 +110,7 @@ export class SessionManager {
         username: params.username,
         port: params.port || 22,
         readyTimeout: params.readyTimeoutMs || 20000,
-        hostVerifier: strictHostKey
-          ? undefined // Use default strict checking
-          : () => true, // Relaxed host key checking
+        hostVerifier: strictHostKey ? undefined : () => true,
         knownHosts: knownHostsPath,
         ...authConfig,
       };
@@ -121,17 +118,27 @@ export class SessionManager {
       logger.debug("Connecting to SSH server");
       await ssh.connect(connectConfig);
 
-      // Get SFTP channel from the existing SSH connection (no second connection)
-      const sftpChannel = await new Promise<SFTPWrapper>((resolve, reject) => {
-        (ssh as any).connection.sftp(
-          (err: Error | undefined, sftp: SFTPWrapper) => {
-            if (err) reject(err);
-            else resolve(sftp);
-          },
-        );
-      });
+      let sftp: SFTPWrapper | undefined;
+      let sftpAvailable = false;
+      try {
+        sftp = await new Promise<SFTPWrapper>((resolve, reject) => {
+          (ssh as any).connection.sftp(
+            (err: Error | undefined, channel: SFTPWrapper) => {
+              if (err) reject(err);
+              else resolve(channel);
+            },
+          );
+        });
+        sftpAvailable = true;
+      } catch (sftpError) {
+        logger.warn("SFTP unavailable, continuing with SSH-only session", {
+          host: params.host,
+          username: params.username,
+          error:
+            sftpError instanceof Error ? sftpError.message : String(sftpError),
+        });
+      }
 
-      // Log warning if host key checking is disabled
       if (!strictHostKey) {
         logger.warn(
           "Host key checking is DISABLED. Set STRICT_HOST_KEY_CHECKING=true for production use.",
@@ -151,9 +158,9 @@ export class SessionManager {
 
       const session: SSHSession = {
         ssh,
-        sftp: sftpChannel,
+        sftp,
         info: sessionInfo,
-        connectionParams: params, // Store for reconnect
+        connectionParams: params,
       };
 
       this.sessions.set(sessionId, session);
@@ -162,6 +169,7 @@ export class SessionManager {
         sessionId,
         host: params.host,
         username: params.username,
+        sftpAvailable,
         expiresInMs: ttl,
       });
 
@@ -169,6 +177,7 @@ export class SessionManager {
         sessionId,
         host: params.host,
         username: params.username,
+        sftpAvailable,
         expiresInMs: ttl,
       };
     } catch (error) {
@@ -180,7 +189,8 @@ export class SessionManager {
             "SSH authentication failed",
             "Check your username, password, or SSH key configuration",
           );
-        } else if (
+        }
+        if (
           error.message.includes("timeout") ||
           error.message.includes("ETIMEDOUT")
         ) {
@@ -188,7 +198,8 @@ export class SessionManager {
             "SSH connection timeout",
             "Check if the host is reachable and the SSH service is running",
           );
-        } else if (error.message.includes("ECONNREFUSED")) {
+        }
+        if (error.message.includes("ECONNREFUSED")) {
           throw createConnectionError(
             "SSH connection refused",
             "Check if the SSH service is running on the target port",
@@ -216,7 +227,6 @@ export class SessionManager {
     }
 
     try {
-      // Close SFTP channel if it has an end method
       if (session.sftp && typeof (session.sftp as any).end === "function") {
         (session.sftp as any).end();
       }
@@ -239,13 +249,11 @@ export class SessionManager {
       return undefined;
     }
 
-    // Check if session is expired
     if (Date.now() > session.info.expiresAt) {
       this.closeSession(sessionId);
       return undefined;
     }
 
-    // Update last used time for LRU
     session.info.lastUsed = Date.now();
     return session;
   }
@@ -266,13 +274,10 @@ export class SessionManager {
           );
         }
         return { password: params.password };
-
       case "key":
         return await this.buildKeyAuth(params);
-
       case "agent":
         return await this.buildAgentAuth();
-
       case "auto":
       default:
         return await this.buildAutoAuth(params);
@@ -283,7 +288,6 @@ export class SessionManager {
    * Builds key-based authentication
    */
   private async buildKeyAuth(params: ConnectionParams): Promise<any> {
-    // Inline private key takes precedence
     if (params.privateKey) {
       logger.debug("Using inline private key");
       return {
@@ -292,7 +296,6 @@ export class SessionManager {
       };
     }
 
-    // Then try explicit path
     if (params.privateKeyPath) {
       logger.debug("Using private key from path", {
         path: params.privateKeyPath,
@@ -303,7 +306,6 @@ export class SessionManager {
       );
     }
 
-    // Auto-discover keys
     return await this.discoverPrivateKeys(params.passphrase);
   }
 
@@ -327,24 +329,21 @@ export class SessionManager {
    * Builds automatic authentication (tries password, then key, then agent)
    */
   private async buildAutoAuth(params: ConnectionParams): Promise<any> {
-    // Try password first if provided
     if (params.password) {
       logger.debug("Auto auth: trying password");
       return { password: params.password };
     }
 
-    // Try key authentication
     try {
       logger.debug("Auto auth: trying key authentication");
       return await this.buildKeyAuth(params);
-    } catch (error) {
+    } catch {
       logger.debug("Auto auth: key authentication failed, trying agent");
     }
 
-    // Fall back to agent
     try {
       return await this.buildAgentAuth();
-    } catch (error) {
+    } catch {
       throw createAuthError(
         "No suitable authentication method found",
         "Provide a password, private key, or ensure SSH agent is running",
@@ -362,7 +361,7 @@ export class SessionManager {
     try {
       const privateKey = await fs.promises.readFile(keyPath, "utf8");
       return { privateKey, passphrase };
-    } catch (error) {
+    } catch {
       throw createAuthError(
         `Failed to load private key from ${keyPath}`,
         "Check if the file exists and is readable",
@@ -378,8 +377,6 @@ export class SessionManager {
     const keyDir =
       process.env.SSH_DEFAULT_KEY_DIR || path.join(homeDir, ".ssh");
 
-    // Modern secure keys only: ed25519 → rsa → ecdsa
-    // DSA removed: deprecated since OpenSSH 7.0 (2015), disabled by default in 8.8 (2021)
     const keyFiles = ["id_ed25519", "id_rsa", "id_ecdsa"];
 
     for (const keyFile of keyFiles) {
@@ -389,8 +386,7 @@ export class SessionManager {
         await fs.promises.access(keyPath, fs.constants.R_OK);
         logger.debug("Found SSH key", { path: keyPath });
         return await this.loadPrivateKeyFromPath(keyPath, passphrase);
-      } catch (error) {
-        // Continue to next key file
+      } catch {
         logger.debug("SSH key not found or not readable", { path: keyPath });
       }
     }
@@ -484,10 +480,8 @@ export class SessionManager {
       host: session.info.host,
     });
 
-    // Close old session
     await this.closeSession(sessionId);
 
-    // Open new session with same params
     try {
       const result = await this.openSession(session.connectionParams);
       logger.info("Session reconnected successfully", {
@@ -530,15 +524,12 @@ export class SessionManager {
       return undefined;
     }
 
-    // Check if still alive
     if (!(await this.isSessionAlive(sessionId))) {
       logger.info("Session disconnected, attempting reconnect", { sessionId });
 
       if (session.connectionParams) {
         try {
           await this.reconnectSession(sessionId);
-          // Return the new session (note: sessionId will be different)
-          // For now, return undefined as the old sessionId is no longer valid
           return undefined;
         } catch (error) {
           logger.error("Auto-reconnect failed", { sessionId, error });
