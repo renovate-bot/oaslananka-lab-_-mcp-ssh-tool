@@ -110,12 +110,7 @@ export type PackageManager =
   | "winget"
   | "unknown";
 
-export type InitSystem =
-  | "systemd"
-  | "service"
-  | "launchd"
-  | "windows-service"
-  | "unknown";
+export type InitSystem = "systemd" | "service" | "launchd" | "windows-service" | "unknown";
 
 export type ShellType = "bash" | "sh" | "powershell" | "cmd" | "unknown";
 
@@ -237,11 +232,7 @@ export const ExecSchema = z.object({
   command: z.string().min(1),
   cwd: z.string().optional(),
   env: z.record(z.string(), z.string()).optional(),
-  timeoutMs: z
-    .number()
-    .min(1000)
-    .optional()
-    .describe("Command execution timeout in milliseconds"),
+  timeoutMs: z.number().min(1000).optional().describe("Command execution timeout in milliseconds"),
 });
 
 export const SudoSchema = z.object({
@@ -249,11 +240,7 @@ export const SudoSchema = z.object({
   command: z.string().min(1),
   password: z.string().optional(),
   cwd: z.string().optional(),
-  timeoutMs: z
-    .number()
-    .min(1000)
-    .optional()
-    .describe("Command execution timeout in milliseconds"),
+  timeoutMs: z.number().min(1000).optional().describe("Command execution timeout in milliseconds"),
 });
 
 export const FSReadSchema = z.object({
@@ -320,4 +307,53 @@ export const PatchApplySchema = z.object({
   path: z.string().min(1),
   diff: z.string(),
   sudoPassword: z.string().optional(),
+});
+
+export const HostAliasSchema = z.object({
+  hostAlias: z.string().min(1),
+});
+
+export const MetricsFormatSchema = z.object({
+  format: z.enum(["json", "prometheus"]).optional().default("json"),
+});
+
+export const ExecStreamSchema = z.object({
+  sessionId: z.string().min(1),
+  command: z.string().min(1),
+  cwd: z.string().optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+
+export const FileUploadSchema = z.object({
+  sessionId: z.string().min(1),
+  localPath: z.string().min(1),
+  remotePath: z.string().min(1),
+});
+
+export const FileDownloadSchema = z.object({
+  sessionId: z.string().min(1),
+  remotePath: z.string().min(1),
+  localPath: z.string().min(1),
+});
+
+export const TunnelLocalForwardSchema = z.object({
+  sessionId: z.string().min(1),
+  localPort: z.number().int().min(1).max(65535),
+  remoteHost: z.string().min(1).default("localhost"),
+  remotePort: z.number().int().min(1).max(65535),
+});
+
+export const TunnelRemoteForwardSchema = z.object({
+  sessionId: z.string().min(1),
+  remotePort: z.number().int().min(1).max(65535),
+  localHost: z.string().min(1).default("localhost"),
+  localPort: z.number().int().min(1).max(65535),
+});
+
+export const TunnelCloseSchema = z.object({
+  tunnelId: z.string().min(1),
+});
+
+export const TunnelListSchema = z.object({
+  sessionId: z.string().min(1).optional(),
 });

@@ -31,6 +31,8 @@ export interface RetryResult<T> {
   totalTimeMs: number;
 }
 
+type DecoratedAsyncMethod = (...args: unknown[]) => Promise<unknown>;
+
 const DEFAULT_OPTIONS: RetryOptions = {
   maxAttempts: 3,
   initialDelayMs: 1000,
@@ -93,7 +95,7 @@ export async function withRetry<T>(
   options: Partial<RetryOptions> = {},
 ): Promise<RetryResult<T>> {
   const opts: RetryOptions = { ...DEFAULT_OPTIONS, ...options };
-  const isRetryable = opts.isRetryable || defaultIsRetryable;
+  const isRetryable = opts.isRetryable ?? defaultIsRetryable;
 
   const startTime = Date.now();
   let lastError: unknown;
@@ -143,21 +145,19 @@ export async function withRetry<T>(
 /**
  * Decorator-style retry wrapper for class methods
  */
-export function retryable<T extends (...args: any[]) => Promise<any>>(
-  options: Partial<RetryOptions> = {},
-) {
+export function retryable(options: Partial<RetryOptions> = {}) {
   return function (
-    _target: any,
+    _target: object,
     _propertyKey: string,
-    descriptor: PropertyDescriptor,
+    descriptor: TypedPropertyDescriptor<DecoratedAsyncMethod>,
   ) {
     const originalMethod = descriptor.value;
+    if (!originalMethod) {
+      return descriptor;
+    }
 
-    descriptor.value = async function (...args: any[]) {
-      const result = await withRetry(
-        () => originalMethod.apply(this, args),
-        options,
-      );
+    descriptor.value = async function (...args: unknown[]) {
+      const result = await withRetry(() => originalMethod.apply(this, args), options);
 
       if (!result.success) {
         throw result.error;

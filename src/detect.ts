@@ -1,11 +1,5 @@
 import { NodeSSH } from "node-ssh";
-import {
-  InitSystem,
-  OSInfo,
-  PackageManager,
-  Platform,
-  ShellType,
-} from "./types.js";
+import { InitSystem, OSInfo, PackageManager, Platform, ShellType } from "./types.js";
 import { logger } from "./logging.js";
 import { createFilesystemError } from "./errors.js";
 
@@ -29,6 +23,21 @@ async function safeExec(
 function normalizeWindowsPath(path: string | undefined): string | undefined {
   if (!path) return undefined;
   return path.replace(/\\\\/g, "/").replace(/\\/g, "/");
+}
+
+function parseKeyValueLine(line: string): { key: string; value: string } | undefined {
+  const separatorIndex = line.indexOf("=");
+  if (separatorIndex === -1) {
+    return undefined;
+  }
+
+  return {
+    key: line.slice(0, separatorIndex),
+    value: line
+      .slice(separatorIndex + 1)
+      .replace(/\"/g, "")
+      .trim(),
+  };
 }
 
 /**
@@ -82,10 +91,7 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
     // macOS detection fallback
     if (platform === "unknown") {
       const macCheck = await safeExec(ssh, "sw_vers -productName");
-      if (
-        macCheck.code === 0 &&
-        macCheck.stdout.toLowerCase().includes("mac")
-      ) {
+      if (macCheck.code === 0 && macCheck.stdout.toLowerCase().includes("mac")) {
         platform = "darwin";
       }
     }
@@ -97,23 +103,15 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
       const shell = psShell.stdout.trim();
       tempDir =
         normalizeWindowsPath(
-          (
-            await safeExec(
-              ssh,
-              'powershell -NoLogo -NoProfile -Command "$env:TEMP"',
-            )
-          ).stdout.trim(),
-        ) || "C:/Windows/Temp";
+          (await safeExec(ssh, 'powershell -NoLogo -NoProfile -Command "$env:TEMP"')).stdout.trim(),
+        ) ?? "C:/Windows/Temp";
 
       let packageManager: PackageManager = "unknown";
       const wingetCheck = await safeExec(
         ssh,
         'powershell -NoLogo -NoProfile -Command "Get-Command winget -ErrorAction SilentlyContinue"',
       );
-      if (
-        wingetCheck.code === 0 &&
-        wingetCheck.stdout.toLowerCase().includes("winget")
-      ) {
+      if (wingetCheck.code === 0 && wingetCheck.stdout.toLowerCase().includes("winget")) {
         packageManager = "winget";
       } else {
         const chocoCheck = await safeExec(ssh, "choco -v");
@@ -127,7 +125,7 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
         distro: "windows",
         version,
         arch,
-        shell: shell || "powershell",
+        shell: shell !== "" ? shell : "powershell",
         packageManager,
         init: "windows-service",
         defaultShell,
@@ -139,7 +137,7 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
     }
 
     const shellResult = await safeExec(ssh, "echo $SHELL");
-    const shell = shellResult.stdout.trim().split("/").pop() || "unknown";
+    const shell = shellResult.stdout.trim().split("/").pop() ?? "unknown";
 
     // Linux distro detection
     if (platform === "linux") {
@@ -161,26 +159,32 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
         if (cmd === "cat /etc/os-release") {
           const lines = result.stdout.split("\n");
           for (const line of lines) {
-            if (line.startsWith("ID=")) {
-              distro = line.split("=")[1].replace(/\"/g, "").trim();
+            const parsedLine = parseKeyValueLine(line);
+            if (!parsedLine) {
+              continue;
             }
-            if (line.startsWith("VERSION_ID=")) {
-              version = line.split("=")[1].replace(/\"/g, "").trim();
+
+            if (parsedLine.key === "ID") {
+              distro = parsedLine.value;
+            }
+            if (parsedLine.key === "VERSION_ID") {
+              version = parsedLine.value;
             }
           }
           break;
         } else if (cmd === "cat /etc/lsb-release") {
           const lines = result.stdout.split("\n");
           for (const line of lines) {
-            if (line.startsWith("DISTRIB_ID=")) {
-              distro = line
-                .split("=")[1]
-                .replace(/\"/g, "")
-                .trim()
-                .toLowerCase();
+            const parsedLine = parseKeyValueLine(line);
+            if (!parsedLine) {
+              continue;
             }
-            if (line.startsWith("DISTRIB_RELEASE=")) {
-              version = line.split("=")[1].replace(/\"/g, "").trim();
+
+            if (parsedLine.key === "DISTRIB_ID") {
+              distro = parsedLine.value.toLowerCase();
+            }
+            if (parsedLine.key === "DISTRIB_RELEASE") {
+              version = parsedLine.value;
             }
           }
           break;
@@ -191,7 +195,7 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
         ) {
           distro = "rhel";
           const versionMatch = result.stdout.match(/(\d+\.\d+)/);
-          if (versionMatch) {
+          if (versionMatch?.[1]) {
             version = versionMatch[1];
           }
           break;
@@ -207,8 +211,10 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
     if (platform === "darwin") {
       const productName = await safeExec(ssh, "sw_vers -productName");
       const productVersion = await safeExec(ssh, "sw_vers -productVersion");
-      distro = productName.stdout.trim() || "macos";
-      version = productVersion.stdout.trim() || "unknown";
+      const productNameValue = productName.stdout.trim();
+      const productVersionValue = productVersion.stdout.trim();
+      distro = productNameValue !== "" ? productNameValue : "macos";
+      version = productVersionValue !== "" ? productVersionValue : "unknown";
       defaultShell = shell.includes("zsh") ? "sh" : "bash";
     }
 
@@ -260,14 +266,8 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
     // Init system detection
     let init: InitSystem = "unknown";
     if (platform === "linux") {
-      const systemctlResult = await safeExec(
-        ssh,
-        "command -v systemctl || which systemctl",
-      );
-      const serviceResult = await safeExec(
-        ssh,
-        "command -v service || which service",
-      );
+      const systemctlResult = await safeExec(ssh, "command -v systemctl || which systemctl");
+      const serviceResult = await safeExec(ssh, "command -v service || which service");
       if (systemctlResult.code === 0) {
         init = "systemd";
       } else if (serviceResult.code === 0) {
@@ -279,11 +279,7 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
 
     tempDir = platform === "darwin" || platform === "linux" ? "/tmp" : tempDir;
     defaultShell =
-      defaultShell === "unknown"
-        ? shell.includes("bash")
-          ? "bash"
-          : "sh"
-        : defaultShell;
+      defaultShell === "unknown" ? (shell.includes("bash") ? "bash" : "sh") : defaultShell;
 
     const osInfo: OSInfo = {
       platform,
@@ -294,7 +290,7 @@ export async function detectOS(ssh: NodeSSH): Promise<OSInfo> {
       packageManager,
       init,
       defaultShell,
-      tempDir,
+      ...(tempDir ? { tempDir } : {}),
     };
 
     logger.debug("OS detection completed", osInfo);

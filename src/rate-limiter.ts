@@ -23,25 +23,22 @@ export interface RateLimitResult {
 }
 
 /**
- * In-memory rate limiter for DoS protection
- * Uses sliding window algorithm
+ * Rate limiter using the Sliding Window Log algorithm.
  */
 export class RateLimiter {
-  private buckets = new Map<string, { count: number; resetAt: number }>();
-  private config: RateLimiterConfig;
-  private cleanupInterval?: NodeJS.Timeout;
+  private readonly logs = new Map<string, number[]>();
+  private readonly config: RateLimiterConfig;
+  private cleanupTimer: NodeJS.Timeout | undefined;
 
   constructor(config: Partial<RateLimiterConfig> = {}) {
     this.config = {
       maxRequests: config.maxRequests ?? 100,
-      windowMs: config.windowMs ?? 60000, // 1 minute
+      windowMs: config.windowMs ?? 60_000,
       blockOnLimit: config.blockOnLimit ?? true,
     };
 
-    // Cleanup expired buckets every minute
-    this.cleanupInterval = setInterval(() => {
-      this.cleanup();
-    }, 60000);
+    this.cleanupTimer = setInterval(() => this.pruneExpiredLogs(), this.config.windowMs);
+    this.cleanupTimer.unref?.();
   }
 
   /**
@@ -49,34 +46,34 @@ export class RateLimiter {
    */
   check(key: string): RateLimitResult {
     const now = Date.now();
-    const bucket = this.buckets.get(key);
+    const cutoff = now - this.config.windowMs;
 
-    // No existing bucket or bucket has expired
-    if (!bucket || now >= bucket.resetAt) {
-      this.buckets.set(key, {
-        count: 1,
-        resetAt: now + this.config.windowMs,
-      });
-
-      return {
-        allowed: true,
-        remaining: this.config.maxRequests - 1,
-        resetIn: this.config.windowMs,
-        blocked: false,
-      };
+    let log = this.logs.get(key);
+    if (!log) {
+      log = [];
+      this.logs.set(key, log);
     }
 
-    // Existing bucket, check limit
-    const newCount = bucket.count + 1;
-    const remaining = Math.max(0, this.config.maxRequests - newCount);
-    const resetIn = bucket.resetAt - now;
+    let index = 0;
+    while (index < log.length && (log[index] ?? 0) <= cutoff) {
+      index++;
+    }
+    if (index > 0) {
+      log.splice(0, index);
+    }
 
-    if (newCount > this.config.maxRequests) {
-      logger.warn("Rate limit exceeded", {
+    const count = log.length;
+    if (count >= this.config.maxRequests) {
+      const oldestInWindow = log[0] ?? now;
+      const resetIn = oldestInWindow + this.config.windowMs - now;
+
+      logger.warn("Rate limit exceeded (sliding window)", {
         key,
-        count: newCount,
+        count,
         max: this.config.maxRequests,
+        resetIn,
       });
+
       return {
         allowed: !this.config.blockOnLimit,
         remaining: 0,
@@ -85,11 +82,12 @@ export class RateLimiter {
       };
     }
 
-    bucket.count = newCount;
+    log.push(now);
+
     return {
       allowed: true,
-      remaining,
-      resetIn,
+      remaining: Math.max(0, this.config.maxRequests - log.length),
+      resetIn: this.config.windowMs,
       blocked: false,
     };
   }
@@ -98,40 +96,49 @@ export class RateLimiter {
    * Reset rate limit for a specific key
    */
   reset(key: string): void {
-    this.buckets.delete(key);
+    this.logs.delete(key);
     logger.debug("Rate limit reset", { key });
   }
 
   /**
    * Get current usage for a key
    */
-  getUsage(
-    key: string,
-  ): { count: number; remaining: number; resetIn: number } | null {
-    const bucket = this.buckets.get(key);
-    if (!bucket || Date.now() >= bucket.resetAt) {
+  getUsage(key: string): { count: number; remaining: number; resetIn: number } | null {
+    const now = Date.now();
+    const cutoff = now - this.config.windowMs;
+    const log = this.logs.get(key);
+    if (!log) {
       return null;
     }
 
+    const activeLog = log.filter((timestamp) => timestamp > cutoff);
+    if (activeLog.length === 0) {
+      return null;
+    }
+
+    const oldestInWindow = activeLog[0] ?? now;
     return {
-      count: bucket.count,
-      remaining: Math.max(0, this.config.maxRequests - bucket.count),
-      resetIn: bucket.resetAt - Date.now(),
+      count: activeLog.length,
+      remaining: Math.max(0, this.config.maxRequests - activeLog.length),
+      resetIn: oldestInWindow + this.config.windowMs - now,
     };
   }
 
   /**
-   * Cleanup expired buckets
+   * Cleanup expired logs
    */
-  private cleanup(): void {
-    const now = Date.now();
+  private pruneExpiredLogs(): void {
+    const cutoff = Date.now() - this.config.windowMs;
     let cleaned = 0;
 
-    for (const [key, bucket] of this.buckets) {
-      if (now >= bucket.resetAt) {
-        this.buckets.delete(key);
+    for (const [key, log] of this.logs) {
+      const activeLog = log.filter((timestamp) => timestamp > cutoff);
+      if (activeLog.length === 0) {
+        this.logs.delete(key);
         cleaned++;
+        continue;
       }
+      this.logs.set(key, activeLog);
     }
 
     if (cleaned > 0) {
@@ -143,13 +150,10 @@ export class RateLimiter {
    * Destroy the rate limiter
    */
   destroy(): void {
-    if (this.cleanupInterval) {
-      clearInterval(this.cleanupInterval);
-      this.cleanupInterval = undefined;
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = undefined;
     }
-    this.buckets.clear();
+    this.logs.clear();
   }
 }
-
-// Default rate limiter instance
-export const rateLimiter = new RateLimiter();

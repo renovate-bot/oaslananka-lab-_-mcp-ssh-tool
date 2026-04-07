@@ -30,7 +30,7 @@ export interface ServerConfig {
   };
 }
 
-const DEFAULT_CONFIG: ServerConfig = {
+export const DEFAULT_CONFIG: ServerConfig = {
   maxSessions: 20,
   sessionTtlMs: 900000, // 15 minutes
   cleanupIntervalMs: 10000, // 10 seconds
@@ -62,7 +62,14 @@ export class ConfigManager {
 
   private loadConfig(overrides: Partial<ServerConfig>): ServerConfig {
     // Start with defaults
-    const config = { ...DEFAULT_CONFIG };
+    const config: ServerConfig = {
+      ...DEFAULT_CONFIG,
+      rateLimit: { ...DEFAULT_CONFIG.rateLimit },
+      security: {
+        ...DEFAULT_CONFIG.security,
+        allowedCiphers: [...DEFAULT_CONFIG.security.allowedCiphers],
+      },
+    };
 
     // Apply environment variable overrides
     if (process.env.SSH_MCP_MAX_SESSIONS) {
@@ -72,10 +79,7 @@ export class ConfigManager {
       config.sessionTtlMs = parseInt(process.env.SSH_MCP_SESSION_TTL, 10);
     }
     if (process.env.SSH_MCP_COMMAND_TIMEOUT) {
-      config.commandTimeoutMs = parseInt(
-        process.env.SSH_MCP_COMMAND_TIMEOUT,
-        10,
-      );
+      config.commandTimeoutMs = parseInt(process.env.SSH_MCP_COMMAND_TIMEOUT, 10);
     }
     if (process.env.SSH_MCP_DEBUG === "true") {
       config.debug = true;
@@ -88,7 +92,19 @@ export class ConfigManager {
     }
 
     // Apply programmatic overrides last
-    return { ...config, ...overrides };
+    return {
+      ...config,
+      ...overrides,
+      rateLimit: {
+        ...config.rateLimit,
+        ...overrides.rateLimit,
+      },
+      security: {
+        ...config.security,
+        ...overrides.security,
+        allowedCiphers: overrides.security?.allowedCiphers ?? [...config.security.allowedCiphers],
+      },
+    };
   }
 
   /**
@@ -102,17 +118,35 @@ export class ConfigManager {
    * Get the entire configuration
    */
   getAll(): Readonly<ServerConfig> {
-    return Object.freeze({ ...this.config });
+    return Object.freeze({
+      ...this.config,
+      rateLimit: Object.freeze({ ...this.config.rateLimit }),
+      security: Object.freeze({
+        ...this.config.security,
+        allowedCiphers: [...this.config.security.allowedCiphers],
+      }),
+    });
   }
 
   /**
    * Update configuration at runtime
    */
   update(updates: Partial<ServerConfig>): void {
-    this.config = { ...this.config, ...updates };
+    this.config = {
+      ...this.config,
+      ...updates,
+      rateLimit: {
+        ...this.config.rateLimit,
+        ...updates.rateLimit,
+      },
+      security: {
+        ...this.config.security,
+        ...updates.security,
+        allowedCiphers: updates.security?.allowedCiphers ?? [
+          ...this.config.security.allowedCiphers,
+        ],
+      },
+    };
     logger.info("Configuration updated", { updates });
   }
 }
-
-// Global configuration instance
-export const config = new ConfigManager();

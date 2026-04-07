@@ -69,10 +69,7 @@ export class MetricsCollector {
    */
   recordSessionClosed(): void {
     this.metrics.sessions.closed++;
-    this.metrics.sessions.active = Math.max(
-      0,
-      this.metrics.sessions.active - 1,
-    );
+    this.metrics.sessions.active = Math.max(0, this.metrics.sessions.active - 1);
     logger.debug("Metrics: session closed", {
       active: this.metrics.sessions.active,
     });
@@ -123,6 +120,9 @@ export class MetricsCollector {
   getMetrics(): Metrics {
     return {
       ...this.metrics,
+      sessions: { ...this.metrics.sessions },
+      commands: { ...this.metrics.commands },
+      files: { ...this.metrics.files },
       uptime: Date.now() - this.metrics.startedAt,
     };
   }
@@ -176,6 +176,3 @@ export class MetricsCollector {
     logger.info("Metrics reset");
   }
 }
-
-// Global metrics instance
-export const metrics = new MetricsCollector();

@@ -38,7 +38,7 @@ export class SSHConfigParser {
   private static readonly CACHE_TTL_MS = 300000; // 5 minutes
 
   constructor(configPath?: string) {
-    this.configPath = configPath || path.join(os.homedir(), ".ssh", "config");
+    this.configPath = configPath ?? path.join(os.homedir(), ".ssh", "config");
   }
 
   /**
@@ -106,7 +106,11 @@ export class SSHConfigParser {
         continue;
       }
 
-      const [, key, value] = match;
+      const key = match[1];
+      const value = match[2];
+      if (!key || !value) {
+        continue;
+      }
       const keyLower = key.toLowerCase();
 
       if (keyLower === "host") {
@@ -202,11 +206,11 @@ export class SSHConfigParser {
     }
 
     return {
-      host: config.hostName || hostAlias,
-      username: config.user,
-      port: config.port,
-      privateKeyPath: config.identityFile,
-      proxyJump: config.proxyJump,
+      host: config.hostName ?? hostAlias,
+      ...(config.user ? { username: config.user } : {}),
+      ...(config.port !== undefined ? { port: config.port } : {}),
+      ...(config.identityFile ? { privateKeyPath: config.identityFile } : {}),
+      ...(config.proxyJump ? { proxyJump: config.proxyJump } : {}),
     };
   }
 

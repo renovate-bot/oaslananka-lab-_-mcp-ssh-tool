@@ -1,19 +1,10 @@
-import { NodeSSH } from "node-ssh";
+import { NodeSSH, type Config } from "node-ssh";
 import type { SFTPWrapper } from "ssh2";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import {
-  ConnectionParams,
-  SessionInfo,
-  SessionResult,
-  OSInfo,
-} from "./types.js";
-import {
-  createAuthError,
-  createConnectionError,
-  createTimeoutError,
-} from "./errors.js";
+import { ConnectionParams, SessionInfo, SessionResult, OSInfo, SSHMCPError } from "./types.js";
+import { createAuthError, createConnectionError, createTimeoutError } from "./errors.js";
 import { logger } from "./logging.js";
 import { detectOS } from "./detect.js";
 
@@ -29,23 +20,35 @@ export interface SSHSession {
   osInfo?: OSInfo;
 }
 
+interface SSHAuthConfig {
+  password?: string;
+  privateKey?: string;
+  passphrase?: string;
+  agent?: string;
+}
+
+type SSHConnectConfig = Config & {
+  knownHosts?: string;
+};
+
 /**
  * Session manager with LRU cache and TTL
  */
 export class SessionManager {
-  private sessions = new Map<string, SSHSession>();
+  private readonly sessions = new Map<string, SSHSession>();
   private readonly maxSessions: number;
+  private readonly defaultTtlMs: number;
   private sessionCounter = 0;
-  private cleanupInterval?: NodeJS.Timeout;
-  private readonly CLEANUP_INTERVAL_MS = 10000; // 10 seconds
+  private cleanupInterval: NodeJS.Timeout | undefined;
 
-  constructor(maxSessions = 20) {
+  constructor(maxSessions = 20, defaultTtlMs = 900_000, cleanupIntervalMs = 10_000) {
     this.maxSessions = maxSessions;
+    this.defaultTtlMs = defaultTtlMs;
 
-    // Clean up expired sessions every 10 seconds (was 60s, too slow)
     this.cleanupInterval = setInterval(() => {
       this.cleanupExpiredSessions();
-    }, this.CLEANUP_INTERVAL_MS);
+    }, cleanupIntervalMs);
+    this.cleanupInterval.unref?.();
   }
 
   /**
@@ -88,7 +91,7 @@ export class SessionManager {
 
     const sessionId = this.generateSessionId();
     const now = Date.now();
-    const ttl = params.ttlMs || 900000; // 15 minutes default
+    const ttl = params.ttlMs ?? this.defaultTtlMs;
 
     try {
       // Clean up old sessions if we're at the limit
@@ -100,20 +103,22 @@ export class SessionManager {
       const authConfig = await this.buildAuthConfig(params);
 
       const strictHostKey =
-        params.strictHostKeyChecking ??
-        process.env.STRICT_HOST_KEY_CHECKING === "true";
-      const knownHostsPath =
-        params.knownHostsPath ?? process.env.KNOWN_HOSTS_PATH;
+        params.strictHostKeyChecking ?? process.env.STRICT_HOST_KEY_CHECKING === "true";
+      const knownHostsPath = params.knownHostsPath ?? process.env.KNOWN_HOSTS_PATH;
 
-      const connectConfig = {
+      const connectConfig: SSHConnectConfig = {
         host: params.host,
         username: params.username,
-        port: params.port || 22,
-        readyTimeout: params.readyTimeoutMs || 20000,
-        hostVerifier: strictHostKey ? undefined : () => true,
-        knownHosts: knownHostsPath,
+        port: params.port ?? 22,
+        readyTimeout: params.readyTimeoutMs ?? 20000,
         ...authConfig,
       };
+      if (!strictHostKey) {
+        connectConfig.hostVerifier = () => true;
+      }
+      if (knownHostsPath !== undefined) {
+        connectConfig.knownHosts = knownHostsPath;
+      }
 
       logger.debug("Connecting to SSH server");
       await ssh.connect(connectConfig);
@@ -121,21 +126,13 @@ export class SessionManager {
       let sftp: SFTPWrapper | undefined;
       let sftpAvailable = false;
       try {
-        sftp = await new Promise<SFTPWrapper>((resolve, reject) => {
-          (ssh as any).connection.sftp(
-            (err: Error | undefined, channel: SFTPWrapper) => {
-              if (err) reject(err);
-              else resolve(channel);
-            },
-          );
-        });
+        sftp = await ssh.requestSFTP();
         sftpAvailable = true;
       } catch (sftpError) {
         logger.warn("SFTP unavailable, continuing with SSH-only session", {
           host: params.host,
           username: params.username,
-          error:
-            sftpError instanceof Error ? sftpError.message : String(sftpError),
+          error: sftpError instanceof Error ? sftpError.message : String(sftpError),
         });
       }
 
@@ -150,7 +147,7 @@ export class SessionManager {
         sessionId,
         host: params.host,
         username: params.username,
-        port: params.port || 22,
+        port: params.port ?? 22,
         createdAt: now,
         expiresAt: now + ttl,
         lastUsed: now,
@@ -158,9 +155,9 @@ export class SessionManager {
 
       const session: SSHSession = {
         ssh,
-        sftp,
         info: sessionInfo,
         connectionParams: params,
+        ...(sftp ? { sftp } : {}),
       };
 
       this.sessions.set(sessionId, session);
@@ -183,6 +180,10 @@ export class SessionManager {
     } catch (error) {
       logger.error("Failed to open SSH session", { error, host: params.host });
 
+      if (error instanceof SSHMCPError) {
+        throw error;
+      }
+
       if (error instanceof Error) {
         if (error.message.includes("authentication")) {
           throw createAuthError(
@@ -190,10 +191,7 @@ export class SessionManager {
             "Check your username, password, or SSH key configuration",
           );
         }
-        if (
-          error.message.includes("timeout") ||
-          error.message.includes("ETIMEDOUT")
-        ) {
+        if (error.message.includes("timeout") || error.message.includes("ETIMEDOUT")) {
           throw createTimeoutError(
             "SSH connection timeout",
             "Check if the host is reachable and the SSH service is running",
@@ -227,8 +225,8 @@ export class SessionManager {
     }
 
     try {
-      if (session.sftp && typeof (session.sftp as any).end === "function") {
-        (session.sftp as any).end();
+      if (session.sftp) {
+        session.sftp.end();
       }
       session.ssh.dispose();
     } catch (error) {
@@ -250,7 +248,7 @@ export class SessionManager {
     }
 
     if (Date.now() > session.info.expiresAt) {
-      this.closeSession(sessionId);
+      void this.closeSession(sessionId);
       return undefined;
     }
 
@@ -261,17 +259,15 @@ export class SessionManager {
   /**
    * Builds authentication configuration based on the auth strategy
    */
-  private async buildAuthConfig(params: ConnectionParams): Promise<any> {
-    const authStrategy = params.auth || "auto";
+  private async buildAuthConfig(params: ConnectionParams): Promise<SSHAuthConfig> {
+    const authStrategy = params.auth ?? "auto";
 
     logger.debug("Building auth config", { strategy: authStrategy });
 
     switch (authStrategy) {
       case "password":
         if (!params.password) {
-          throw createAuthError(
-            "Password required for password authentication",
-          );
+          throw createAuthError("Password required for password authentication");
         }
         return { password: params.password };
       case "key":
@@ -287,12 +283,12 @@ export class SessionManager {
   /**
    * Builds key-based authentication
    */
-  private async buildKeyAuth(params: ConnectionParams): Promise<any> {
+  private async buildKeyAuth(params: ConnectionParams): Promise<SSHAuthConfig> {
     if (params.privateKey) {
       logger.debug("Using inline private key");
       return {
         privateKey: params.privateKey,
-        passphrase: params.passphrase,
+        ...(params.passphrase !== undefined ? { passphrase: params.passphrase } : {}),
       };
     }
 
@@ -300,10 +296,7 @@ export class SessionManager {
       logger.debug("Using private key from path", {
         path: params.privateKeyPath,
       });
-      return await this.loadPrivateKeyFromPath(
-        params.privateKeyPath,
-        params.passphrase,
-      );
+      return await this.loadPrivateKeyFromPath(params.privateKeyPath, params.passphrase);
     }
 
     return await this.discoverPrivateKeys(params.passphrase);
@@ -312,7 +305,7 @@ export class SessionManager {
   /**
    * Builds SSH agent authentication
    */
-  private async buildAgentAuth(): Promise<any> {
+  private async buildAgentAuth(): Promise<SSHAuthConfig> {
     const authSock = process.env.SSH_AUTH_SOCK;
     if (!authSock) {
       throw createAuthError(
@@ -328,7 +321,7 @@ export class SessionManager {
   /**
    * Builds automatic authentication (tries password, then key, then agent)
    */
-  private async buildAutoAuth(params: ConnectionParams): Promise<any> {
+  private async buildAutoAuth(params: ConnectionParams): Promise<SSHAuthConfig> {
     if (params.password) {
       logger.debug("Auto auth: trying password");
       return { password: params.password };
@@ -357,10 +350,13 @@ export class SessionManager {
   private async loadPrivateKeyFromPath(
     keyPath: string,
     passphrase?: string,
-  ): Promise<any> {
+  ): Promise<SSHAuthConfig> {
     try {
       const privateKey = await fs.promises.readFile(keyPath, "utf8");
-      return { privateKey, passphrase };
+      return {
+        privateKey,
+        ...(passphrase !== undefined ? { passphrase } : {}),
+      };
     } catch {
       throw createAuthError(
         `Failed to load private key from ${keyPath}`,
@@ -372,10 +368,9 @@ export class SessionManager {
   /**
    * Auto-discovers private keys in standard locations
    */
-  private async discoverPrivateKeys(passphrase?: string): Promise<any> {
+  private async discoverPrivateKeys(passphrase?: string): Promise<SSHAuthConfig> {
     const homeDir = os.homedir();
-    const keyDir =
-      process.env.SSH_DEFAULT_KEY_DIR || path.join(homeDir, ".ssh");
+    const keyDir = process.env.SSH_DEFAULT_KEY_DIR ?? path.join(homeDir, ".ssh");
 
     const keyFiles = ["id_ed25519", "id_rsa", "id_ecdsa"];
 
@@ -420,7 +415,7 @@ export class SessionManager {
 
     if (oldestSession) {
       logger.info("Evicting oldest session", { sessionId: oldestSession });
-      this.closeSession(oldestSession);
+      void this.closeSession(oldestSession);
     }
   }
 
@@ -439,7 +434,7 @@ export class SessionManager {
 
     for (const sessionId of expiredSessions) {
       logger.info("Cleaning up expired session", { sessionId });
-      this.closeSession(sessionId);
+      void this.closeSession(sessionId);
     }
   }
 
@@ -516,9 +511,7 @@ export class SessionManager {
   /**
    * Gets session with auto-reconnect if disconnected
    */
-  async getSessionWithReconnect(
-    sessionId: string,
-  ): Promise<SSHSession | undefined> {
+  async getSessionWithReconnect(sessionId: string): Promise<SSHSession | undefined> {
     const session = this.getSession(sessionId);
     if (!session) {
       return undefined;
@@ -541,6 +534,3 @@ export class SessionManager {
     return session;
   }
 }
-
-// Global session manager instance
-export const sessionManager = new SessionManager();

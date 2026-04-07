@@ -102,36 +102,30 @@ docs(readme): update installation instructions
 
 ## Continuous Integration (CI)
 
-This project uses GitHub Actions for continuous integration. The CI workflow runs on pull requests and pushes to the `main` and `master` branches, but skips runs for documentation-only changes (e.g., updates to `README.md`, `.gitattributes`, or any `*.md` files). CI will still run when code files, tests, or workflow configurations are modified.
+Primary CI/CD runs on Azure DevOps under `/.azure/pipelines/`.
 
-### Concurrency and Run Cancellation
+- `ci.yml` handles quality checks, tests, coverage publishing, and builds
+- `publish.yml` handles Azure-based release validation and npm publish flow
+- `mirror.yml` is used for GitHub release mirroring from Azure
 
-To optimize resource usage and reduce noise, the CI workflow uses concurrency controls:
-- Only the latest run per branch/ref is kept active.
-- In-progress runs on the same ref are automatically canceled when a new commit is pushed.
-
-### Workflow Run Retention
-
-Workflow runs are retained for 14 days. To configure this in the GitHub UI:
-1. Go to your repository's **Settings**.
-2. Navigate to **Actions** → **General**.
-3. Under **Workflow run retention**, set it to 14 days.
-
-Note: The "Cancel in-progress runs" feature is already enabled via the concurrency configuration in the workflow file.
+GitHub Actions is intentionally **manual-only** for emergency fallback publishing.
 
 ## Releasing
 
-Releases are automated via GitHub Actions. To create a new release:
+Primary release automation runs via Azure DevOps.
 
 1. Update `CHANGELOG.md` with the new version and changes.
 2. Update version in `package.json`.
-3. Commit and push the changes.
-4. Create and push a tag: `git tag v1.2.5 && git push origin v1.2.5`
+3. Run `npm run sync-version`.
+4. Commit and push the changes.
+5. Create and push a tag: `git tag v1.3.1 && git push origin v1.3.1`
 
-The publish workflow will:
-- Run tests and build
-- Publish to npm (requires `NPM_TOKEN` secret)
-- Create a GitHub Release
+Azure publish validation checks:
+
+- `package.json`, `mcp.json`, `server.json`, registry metadata, and `src/mcp.ts` version consistency
+- test and build health before publish
+
+GitHub Actions `publish.yml` should be used only if Azure DevOps is unavailable and a manual hotfix publish is required.
 
 ## Project Structure
 
@@ -139,7 +133,9 @@ The publish workflow will:
 mcp-ssh-tool/
 ├── src/
 │   ├── index.ts        # Entry point
-│   ├── mcp.ts          # MCP server
+│   ├── container.ts    # Dependency injection wiring
+│   ├── mcp.ts          # MCP server shell and registry wiring
+│   ├── tools/          # Tool providers and registry
 │   ├── session.ts      # SSH session management
 │   ├── process.ts      # Command execution
 │   ├── fs-tools.ts     # File operations
@@ -160,10 +156,10 @@ mcp-ssh-tool/
 
 ### Adding a New MCP Tool
 
-1. Define the schema in `src/types.ts`
-2. Add tool definition in `src/mcp.ts` (ListToolsRequestSchema)
-3. Implement handler in `src/mcp.ts` (CallToolRequestSchema)
-4. Add tests in `test/`
+1. Define or reuse the schema in `src/types.ts`
+2. Create or update a provider in `src/tools/`
+3. Register the provider in `src/tools/index.ts`
+4. Add tests in `test/unit/tools/`
 5. Update documentation
 
 ### Adding New Dependencies

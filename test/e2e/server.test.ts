@@ -1,241 +1,172 @@
 /**
  * E2E tests for SSH MCP Server
- * 
+ *
  * These tests require a test SSH server to be available.
  * Set RUN_SSH_E2E=1 environment variable to enable these tests.
- * 
+ *
  * Quick start with Docker:
  * docker-compose up -d ssh-server
  * npm run test:e2e
  */
 
-import { describe, test, expect, beforeAll, afterAll } from '@jest/globals';
+import { afterAll, beforeAll, describe, expect, test } from "@jest/globals";
+import { createContainer, type AppContainer } from "../../src/container.js";
+import { detectOS } from "../../src/detect.js";
+import { createFsService, type FsService } from "../../src/fs-tools.js";
+import { createProcessService, type ProcessService } from "../../src/process.js";
+import { createStreamingService, type StreamingService } from "../../src/streaming.js";
 
-// Test configuration from environment
-const TEST_SSH_HOST = process.env.TEST_SSH_HOST || 'localhost';
-const TEST_SSH_PORT = parseInt(process.env.TEST_SSH_PORT || '2222');
-const TEST_SSH_USER = process.env.TEST_SSH_USER || 'testuser';
-const TEST_SSH_PASS = process.env.TEST_SSH_PASS || 'testpass';
+const TEST_SSH_HOST = process.env.TEST_SSH_HOST || "localhost";
+const TEST_SSH_PORT = parseInt(process.env.TEST_SSH_PORT || "2222", 10);
+const TEST_SSH_USER = process.env.TEST_SSH_USER || "testuser";
+const TEST_SSH_PASS = process.env.TEST_SSH_PASS || "testpass";
+const RUN_E2E = process.env.RUN_SSH_E2E === "1";
+const e2eDescribe = RUN_E2E ? describe : describe.skip;
 
-// Skip flag
-const SKIP_E2E = !process.env.RUN_SSH_E2E;
-
-// Helper to conditionally skip tests
-const e2eTest = SKIP_E2E ? test.skip : test;
-
-describe('SSH MCP Server E2E Tests', () => {
-  let sessionManager: any;
-  let sessionId: string;
+e2eDescribe("SSH MCP Server E2E Tests", () => {
+  let container: AppContainer;
+  let processService: ProcessService;
+  let fsService: FsService;
+  let streamingService: StreamingService;
+  let sessionId = "";
 
   beforeAll(async () => {
-    if (SKIP_E2E) {
-      console.log('⏭️  Skipping E2E tests - set RUN_SSH_E2E=1 to enable');
-      return;
-    }
+    container = createContainer();
+    processService = createProcessService({
+      sessionManager: container.sessionManager,
+    });
+    fsService = createFsService({
+      sessionManager: container.sessionManager,
+      metrics: container.metrics,
+    });
+    streamingService = createStreamingService({
+      sessionManager: container.sessionManager,
+    });
 
-    // Import session manager from source
-    const sessionModule = await import('../../src/session.js');
-    sessionManager = sessionModule.sessionManager;
+    const result = await container.sessionManager.openSession({
+      host: TEST_SSH_HOST,
+      port: TEST_SSH_PORT,
+      username: TEST_SSH_USER,
+      password: TEST_SSH_PASS,
+      auth: "password",
+    });
+
+    sessionId = result.sessionId;
   });
 
   afterAll(async () => {
-    if (sessionId && sessionManager) {
-      try {
-        await sessionManager.closeSession(sessionId);
-        console.log('✅ Test session cleaned up');
-      } catch (e) {
-        console.log('⚠️  Failed to clean up session');
-      }
+    if (!container) {
+      return;
     }
+
+    if (sessionId) {
+      await container.sessionManager.closeSession(sessionId);
+      sessionId = "";
+    }
+
+    container.rateLimiter.destroy();
+    await container.sessionManager.destroy();
   });
 
-  describe('Session Management', () => {
-    e2eTest('should connect via password authentication', async () => {
-      const result = await sessionManager.openSession({
-        host: TEST_SSH_HOST,
-        port: TEST_SSH_PORT,
-        username: TEST_SSH_USER,
-        password: TEST_SSH_PASS,
-        auth: 'password'
-      });
-
-      expect(result.sessionId).toBeDefined();
-      expect(result.host).toBe(TEST_SSH_HOST);
-      expect(result.username).toBe(TEST_SSH_USER);
-
-      sessionId = result.sessionId;
-      console.log(`✅ Connected: ${sessionId}`);
-    });
-
-    e2eTest('should list active sessions', async () => {
-      const sessions = sessionManager.getActiveSessions();
-
-      expect(Array.isArray(sessions)).toBe(true);
-      expect(sessions.length).toBeGreaterThan(0);
-      expect(sessions.some((s: any) => s.sessionId === sessionId)).toBe(true);
-
-      console.log(`✅ Found ${sessions.length} active session(s)`);
-    });
-
-    e2eTest('should check session health with isSessionAlive', async () => {
-      const isAlive = await sessionManager.isSessionAlive(sessionId);
-
-      expect(isAlive).toBe(true);
-      console.log('✅ Session is alive');
-    });
+  test("connects via password authentication", () => {
+    expect(sessionId).toBeTruthy();
   });
 
-  describe('Command Execution', () => {
-    e2eTest('should execute basic commands', async () => {
-      const { execCommand } = await import('../../src/process.js');
+  test("lists active sessions", () => {
+    const sessions = container.sessionManager.getActiveSessions();
 
-      const result = await execCommand(sessionId, 'echo "Hello World"');
-
-      expect(result.code).toBe(0);
-      expect(result.stdout.trim()).toBe('Hello World');
-      expect(result.durationMs).toBeGreaterThan(0);
-
-      console.log(`✅ Command executed in ${result.durationMs}ms`);
-    });
-
-    e2eTest('should execute commands with environment variables', async () => {
-      const { execCommand } = await import('../../src/process.js');
-
-      const result = await execCommand(sessionId, 'echo $MY_VAR', undefined, { MY_VAR: 'test123' });
-
-      expect(result.code).toBe(0);
-      expect(result.stdout.trim()).toBe('test123');
-
-      console.log('✅ Environment variables work');
-    });
-
-    e2eTest('should execute commands with working directory', async () => {
-      const { execCommand } = await import('../../src/process.js');
-
-      const result = await execCommand(sessionId, 'pwd', '/tmp');
-
-      expect(result.code).toBe(0);
-      expect(result.stdout.trim()).toBe('/tmp');
-
-      console.log('✅ Working directory works');
-    });
-
-    e2eTest('should handle command timeout', async () => {
-      const { execCommand } = await import('../../src/process.js');
-
-      await expect(
-        execCommand(sessionId, 'sleep 10', undefined, undefined, 1000)
-      ).rejects.toThrow(/timeout/i);
-
-      console.log('✅ Timeout works');
-    });
+    expect(Array.isArray(sessions)).toBe(true);
+    expect(sessions.length).toBeGreaterThan(0);
+    expect(sessions.some((session) => session.sessionId === sessionId)).toBe(true);
   });
 
-  describe('File Operations', () => {
-    const testFilePath = '/tmp/mcp-ssh-test-file.txt';
-    const testContent = 'Hello from MCP SSH Tool!';
-
-    e2eTest('should write a file', async () => {
-      const { writeFile } = await import('../../src/fs-tools.js');
-
-      const result = await writeFile(sessionId, testFilePath, testContent);
-
-      expect(result).toBe(true);
-      console.log(`✅ File written: ${testFilePath}`);
-    });
-
-    e2eTest('should read a file', async () => {
-      const { readFile } = await import('../../src/fs-tools.js');
-
-      const content = await readFile(sessionId, testFilePath);
-
-      expect(content).toBe(testContent);
-      console.log('✅ File content matches');
-    });
-
-    e2eTest('should stat a file', async () => {
-      const { statFile } = await import('../../src/fs-tools.js');
-
-      const stats = await statFile(sessionId, testFilePath);
-
-      expect(stats.type).toBe('file');
-      expect(stats.size).toBeGreaterThan(0);
-      console.log(`✅ File size: ${stats.size} bytes`);
-    });
-
-    e2eTest('should list directory', async () => {
-      const { listDirectory } = await import('../../src/fs-tools.js');
-
-      const result = await listDirectory(sessionId, '/tmp');
-
-      expect(Array.isArray(result.entries)).toBe(true);
-      expect(result.entries.some((e: any) => e.name === 'mcp-ssh-test-file.txt')).toBe(true);
-      console.log(`✅ Found ${result.entries.length} entries in /tmp`);
-    });
-
-    e2eTest('should create directory', async () => {
-      const { makeDirectories } = await import('../../src/fs-tools.js');
-
-      const result = await makeDirectories(sessionId, '/tmp/mcp-test-dir/nested');
-
-      expect(result).toBe(true);
-      console.log('✅ Directory created');
-    });
-
-    e2eTest('should remove file and directory', async () => {
-      const { removeRecursive } = await import('../../src/fs-tools.js');
-
-      await removeRecursive(sessionId, testFilePath);
-      await removeRecursive(sessionId, '/tmp/mcp-test-dir');
-
-      console.log('✅ Cleanup complete');
-    });
+  test("checks session health", async () => {
+    await expect(container.sessionManager.isSessionAlive(sessionId)).resolves.toBe(true);
   });
 
-  describe('OS Detection', () => {
-    e2eTest('should detect OS information', async () => {
-      const session = sessionManager.getSession(sessionId);
-      const { detectOS } = await import('../../src/detect.js');
+  test("executes basic commands", async () => {
+    const result = await processService.execCommand(sessionId, 'echo "Hello World"');
 
-      const osInfo = await detectOS(session.ssh);
-
-      expect(osInfo.arch).toBeDefined();
-      expect(osInfo.shell).toBeDefined();
-      console.log(`✅ OS: ${osInfo.distro || 'Linux'} (${osInfo.arch})`);
-    });
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe("Hello World");
+    expect(result.durationMs).toBeGreaterThan(0);
   });
 
-  describe('Streaming Output', () => {
-    e2eTest('should stream command output', async () => {
-      const { execWithStreaming } = await import('../../src/streaming.js');
-
-      const chunks: any[] = [];
-      const result = await execWithStreaming({
-        sessionId,
-        command: 'for i in 1 2 3; do echo "Line $i"; sleep 0.1; done',
-        onChunk: (chunk) => chunks.push(chunk)
-      });
-
-      expect(result.code).toBe(0);
-      expect(chunks.length).toBeGreaterThan(0);
-      console.log(`✅ Received ${chunks.length} chunks`);
+  test("executes commands with environment variables", async () => {
+    const result = await processService.execCommand(sessionId, "echo $MY_VAR", undefined, {
+      MY_VAR: "test123",
     });
+
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe("test123");
   });
 
-  describe('Session Cleanup', () => {
-    e2eTest('should close session', async () => {
-      const result = await sessionManager.closeSession(sessionId);
+  test("executes commands with working directory", async () => {
+    const result = await processService.execCommand(sessionId, "pwd", "/tmp");
 
-      expect(result).toBe(true);
+    expect(result.code).toBe(0);
+    expect(result.stdout.trim()).toBe("/tmp");
+  });
 
-      // Verify session is gone
-      const session = sessionManager.getSession(sessionId);
-      expect(session).toBeUndefined();
+  test("handles command timeout", async () => {
+    await expect(
+      processService.execCommand(sessionId, "sleep 10", undefined, undefined, 1000),
+    ).rejects.toThrow(/timeout/i);
+  });
 
-      sessionId = ''; // Clear so afterAll doesn't try to close again
-      console.log('✅ Session closed');
+  test("writes, reads, stats, lists, and cleans up files", async () => {
+    const testFilePath = "/tmp/mcp-ssh-test-file.txt";
+    const testDirPath = "/tmp/mcp-test-dir/nested";
+    const testContent = "Hello from MCP SSH Tool!";
+
+    await expect(fsService.writeFile(sessionId, testFilePath, testContent)).resolves.toBe(true);
+    await expect(fsService.readFile(sessionId, testFilePath)).resolves.toBe(testContent);
+
+    const stats = await fsService.statFile(sessionId, testFilePath);
+    expect(stats.type).toBe("file");
+    expect(stats.size).toBeGreaterThan(0);
+
+    const listing = await fsService.listDirectory(sessionId, "/tmp");
+    expect(Array.isArray(listing.entries)).toBe(true);
+    expect(listing.entries.some((entry) => entry.name === "mcp-ssh-test-file.txt")).toBe(true);
+
+    await expect(fsService.makeDirectories(sessionId, testDirPath)).resolves.toBe(true);
+
+    await expect(fsService.removeRecursive(sessionId, testFilePath)).resolves.toBe(true);
+    await expect(fsService.removeRecursive(sessionId, "/tmp/mcp-test-dir")).resolves.toBe(true);
+  });
+
+  test("detects OS information", async () => {
+    const session = container.sessionManager.getSession(sessionId);
+    if (!session) {
+      throw new Error("session not found");
+    }
+
+    const osInfo = await detectOS(session.ssh);
+    expect(osInfo.arch).toBeDefined();
+    expect(osInfo.shell).toBeDefined();
+  });
+
+  test("streams command output", async () => {
+    const chunks: Array<{ data?: string }> = [];
+    const result = await streamingService.execWithStreaming({
+      sessionId,
+      command: 'for i in 1 2 3; do echo "Line $i"; sleep 0.1; done',
+      onChunk: (chunk) => {
+        chunks.push(chunk);
+      },
     });
+
+    expect(result.code).toBe(0);
+    expect(chunks.length).toBeGreaterThan(0);
+    expect(result.stdout).toContain("Line 1");
+  });
+
+  test("closes the session", async () => {
+    await expect(container.sessionManager.closeSession(sessionId)).resolves.toBe(true);
+    expect(container.sessionManager.getSession(sessionId)).toBeUndefined();
+    sessionId = "";
   });
 });
 
-export { };
+export {};

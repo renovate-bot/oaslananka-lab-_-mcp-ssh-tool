@@ -142,12 +142,7 @@ export function checkCommandSafety(command: string): SafetyCheckResult {
 
   const normalizedCommand = command.trim();
 
-  for (const {
-    pattern,
-    riskLevel,
-    warning,
-    suggestion,
-  } of DANGEROUS_PATTERNS) {
+  for (const { pattern, riskLevel, warning, suggestion } of DANGEROUS_PATTERNS) {
     if (pattern.test(normalizedCommand)) {
       logger.debug("Safety warning triggered", {
         command: normalizedCommand.substring(0, 50),
@@ -158,7 +153,7 @@ export function checkCommandSafety(command: string): SafetyCheckResult {
         safe: false,
         warning,
         riskLevel,
-        suggestion,
+        ...(suggestion ? { suggestion } : {}),
       };
     }
   }
@@ -169,9 +164,7 @@ export function checkCommandSafety(command: string): SafetyCheckResult {
 /**
  * Formats a safety warning for inclusion in command output
  */
-export function formatSafetyWarning(
-  result: SafetyCheckResult,
-): string | undefined {
+export function formatSafetyWarning(result: SafetyCheckResult): string | undefined {
   if (result.safe) {
     return undefined;
   }
@@ -183,7 +176,7 @@ export function formatSafetyWarning(
     critical: "🔴",
   };
 
-  let message = `${emoji[result.riskLevel || "medium"]} WARNING: ${result.warning}`;
+  let message = `${emoji[result.riskLevel ?? "medium"]} WARNING: ${result.warning}`;
 
   if (result.suggestion) {
     message += `\n💡 Suggestion: ${result.suggestion}`;

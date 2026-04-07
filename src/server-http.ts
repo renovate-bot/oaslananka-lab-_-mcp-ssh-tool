@@ -1,39 +1,29 @@
-import {
-  createServer,
-  type IncomingMessage,
-  type ServerResponse,
-} from "node:http";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { URL } from "node:url";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
+import { createContainer } from "./container.js";
 import { SSHMCPServer } from "./mcp.js";
 import { logger } from "./logging.js";
-import { sessionManager } from "./session.js";
 
 interface HttpSession {
   server: SSHMCPServer;
   transport: SSEServerTransport;
 }
 
-const port = Number(process.env.PORT || 3000);
+const port = Number(process.env.PORT ?? 3000);
 const endpoint = "/mcp";
 const sessions = new Map<string, HttpSession>();
+const container = createContainer();
 
-function sendJson(
-  res: ServerResponse,
-  statusCode: number,
-  payload: Record<string, unknown>,
-) {
+function sendJson(res: ServerResponse, statusCode: number, payload: Record<string, unknown>) {
   res.writeHead(statusCode, { "Content-Type": "application/json" });
   res.end(JSON.stringify(payload, null, 2));
 }
 
-async function handleSseConnection(
-  _req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
+async function handleSseConnection(_req: IncomingMessage, res: ServerResponse): Promise<void> {
   const transport = new SSEServerTransport(endpoint, res);
   const sessionId = transport.sessionId;
-  const server = new SSHMCPServer();
+  const server = new SSHMCPServer(container);
 
   transport.onclose = () => {
     sessions.delete(sessionId);
@@ -61,12 +51,9 @@ async function handleSseConnection(
   }
 }
 
-async function handleMessagePost(
-  req: IncomingMessage,
-  res: ServerResponse,
-): Promise<void> {
-  const baseUrl = `http://${req.headers.host || "localhost"}`;
-  const requestUrl = new URL(req.url || endpoint, baseUrl);
+async function handleMessagePost(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const baseUrl = `http://${req.headers.host ?? "localhost"}`;
+  const requestUrl = new URL(req.url ?? endpoint, baseUrl);
   const sessionId = requestUrl.searchParams.get("sessionId");
 
   if (!sessionId) {
@@ -93,31 +80,33 @@ async function handleMessagePost(
   }
 }
 
-const httpServer = createServer(async (req, res) => {
-  const requestUrl = new URL(req.url || endpoint, "http://localhost");
+const httpServer = createServer((req, res) => {
+  void (async () => {
+    const requestUrl = new URL(req.url ?? endpoint, "http://localhost");
 
-  if (requestUrl.pathname === "/.well-known/openai-apps-challenge") {
-    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
-    res.end("cxYvVGiJrMx7VjCg1z8KmodNB6dR7RyPLWpW7Lcy2Kg");
-    return;
-  }
+    if (requestUrl.pathname === "/.well-known/openai-apps-challenge") {
+      res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+      res.end("cxYvVGiJrMx7VjCg1z8KmodNB6dR7RyPLWpW7Lcy2Kg");
+      return;
+    }
 
-  if (requestUrl.pathname !== endpoint) {
-    sendJson(res, 404, { error: "Not found" });
-    return;
-  }
+    if (requestUrl.pathname !== endpoint) {
+      sendJson(res, 404, { error: "Not found" });
+      return;
+    }
 
-  if (req.method === "GET") {
-    await handleSseConnection(req, res);
-    return;
-  }
+    if (req.method === "GET") {
+      await handleSseConnection(req, res);
+      return;
+    }
 
-  if (req.method === "POST") {
-    await handleMessagePost(req, res);
-    return;
-  }
+    if (req.method === "POST") {
+      await handleMessagePost(req, res);
+      return;
+    }
 
-  sendJson(res, 405, { error: "Method not allowed" });
+    sendJson(res, 405, { error: "Method not allowed" });
+  })();
 });
 
 let shuttingDown = false;
@@ -145,7 +134,8 @@ async function shutdown(signal: string) {
   );
   sessions.clear();
 
-  await sessionManager.destroy();
+  container.rateLimiter.destroy();
+  await container.sessionManager.destroy();
   process.exit(0);
 }
 

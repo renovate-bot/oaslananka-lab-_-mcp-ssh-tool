@@ -11,9 +11,9 @@
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
+import { createContainer, type AppContainer } from "./container.js";
 import { SSHMCPServer } from "./mcp.js";
 import { logger } from "./logging.js";
-import { sessionManager } from "./session.js";
 
 function getPackageInfo() {
   try {
@@ -29,7 +29,7 @@ function getPackageInfo() {
 
 function printHelp() {
   const pkg = getPackageInfo();
-  const name = pkg.name || "mcp-ssh-tool";
+  const name = pkg.name ?? "mcp-ssh-tool";
   const version = pkg.version ? `v${pkg.version}` : "";
   const help = [
     `${name} ${version}`.trim(),
@@ -113,19 +113,15 @@ async function main() {
   try {
     logger.info("Starting SSH MCP Server...");
 
-    const server = new SSHMCPServer();
+    container = createContainer();
+    const server = new SSHMCPServer(container);
     await server.run();
 
     // Gentle warning if a human types into the terminal
     let warned = false;
     process.stdin.on("data", (chunk: Buffer) => {
       const trimmed = chunk.toString().trimStart();
-      if (
-        !warned &&
-        trimmed &&
-        !trimmed.startsWith("{") &&
-        !trimmed.startsWith("[")
-      ) {
+      if (!warned && trimmed && !trimmed.startsWith("{") && !trimmed.startsWith("[")) {
         process.stderr.write(
           "This is an MCP stdio server. Do not type commands here. Use an MCP client or run --help.\n",
         );
@@ -174,6 +170,8 @@ process.on("unhandledRejection", (reason, promise) => {
 
 // Handle graceful shutdown
 let shuttingDown = false;
+let container: AppContainer | undefined;
+
 async function gracefulShutdown(signal: string) {
   if (shuttingDown) {
     // Second signal = force exit immediately
@@ -190,7 +188,10 @@ async function gracefulShutdown(signal: string) {
   }, 2000);
 
   try {
-    await sessionManager.destroy();
+    container?.rateLimiter.destroy();
+    if (container) {
+      await container.sessionManager.destroy();
+    }
   } catch (error) {
     logger.error("Shutdown error", { error });
   }
@@ -199,8 +200,12 @@ async function gracefulShutdown(signal: string) {
   process.exit(0);
 }
 
-process.on("SIGINT", () => gracefulShutdown("SIGINT"));
-process.on("SIGTERM", () => gracefulShutdown("SIGTERM"));
+process.on("SIGINT", () => {
+  void gracefulShutdown("SIGINT");
+});
+process.on("SIGTERM", () => {
+  void gracefulShutdown("SIGTERM");
+});
 
 // Run the server
-main();
+void main();

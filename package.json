@@ -20,21 +20,24 @@
     "mcp-ssh-tool": "dist/index.js"
   },
   "scripts": {
-    "build": "tsc",
-    "dev": "tsc -w",
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json -w",
     "test": "jest --testPathPatterns=unit",
     "test:coverage": "jest --coverage --testPathPatterns=unit",
     "test:e2e": "jest --testPathPatterns=e2e",
-    "lint": "tsc --noEmit",
-    "format": "prettier --write src/**/*.ts",
+    "lint": "tsc --noEmit && eslint src/**/*.ts test/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts test/**/*.ts --fix",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\"",
     "prepare": "npm run build",
-    "prepublishOnly": "npm run lint && npm test && npm run build",
+    "prepublishOnly": "npm run lint && npm run format:check && npm test && npm run build",
     "e2e:docker": "docker-compose up -d ssh-server && npm run test:e2e",
-    "docs": "npx typedoc --out docs src/index.ts",
+    "docs": "npx typedoc --options typedoc.json",
     "start:http": "node dist/server-http.js",
     "setup:chatgpt": "node scripts/setup-chatgpt.mjs",
     "sync-version": "node scripts/sync-version.mjs",
-    "version": "node scripts/sync-version.mjs && git add mcp.json server.json registry/mcp-ssh-tool/mcp.json src/mcp.ts"
+    "version": "node scripts/sync-version.mjs && git add mcp.json server.json registry/mcp-ssh-tool/mcp.json src/mcp.ts",
+    "audit": "npm audit --audit-level=moderate"
   },
   "keywords": [
     "mcp",
@@ -62,11 +65,11 @@
     "access": "public"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
-    "commander": "^14.0.3",
     "node-ssh": "^13.2.1",
     "zod": "^4.3.6"
   },
@@ -89,11 +92,8 @@
       ".ts"
     ],
     "testEnvironment": "node",
-    "roots": [
-      "<rootDir>/test"
-    ],
     "testMatch": [
-      "**/unit/**/*.test.ts"
+      "<rootDir>/test/**/*.test.ts"
     ],
     "moduleNameMapper": {
       "^(\\.{1,2}/.*)\\.js$": "$1"
@@ -102,13 +102,21 @@
       "^.+\\.tsx?$": [
         "ts-jest",
         {
-          "useESM": true
+          "useESM": true,
+          "tsconfig": "tsconfig.test.json",
+          "diagnostics": {
+            "ignoreCodes": [
+              151002
+            ]
+          }
         }
       ]
     },
     "collectCoverageFrom": [
       "src/**/*.ts",
-      "!src/**/*.d.ts"
+      "!src/**/*.d.ts",
+      "!src/index.ts",
+      "!src/server-http.ts"
     ],
     "coverageDirectory": "coverage",
     "coverageReporters": [
@@ -119,10 +127,16 @@
     ],
     "coverageThreshold": {
       "global": {
-        "branches": 50,
-        "functions": 50,
-        "lines": 50,
-        "statements": 50
+        "branches": 70,
+        "functions": 75,
+        "lines": 75,
+        "statements": 75
+      },
+      "src/tools/": {
+        "branches": 65,
+        "functions": 70,
+        "lines": 70,
+        "statements": 70
       }
     },
     "reporters": [

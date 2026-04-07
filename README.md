@@ -66,6 +66,9 @@ Once configured, you can use natural language with your MCP client:
 - `patch_apply` - Apply patches to files
 - `os_detect` - System information detection
 - `get_metrics` - Server metrics in JSON or Prometheus format
+- `proc_exec_stream` - Streaming command execution with chunked output
+- `file_upload`, `file_download` - SFTP file transfer helpers
+- `tunnel_local_forward`, `tunnel_remote_forward`, `tunnel_close`, `tunnel_list` - Tunnel management
 
 ## Overview
 
@@ -272,6 +275,39 @@ Then restart networking service"
 - **Host key verification**: Set `STRICT_HOST_KEY_CHECKING=true` in the MCP server environment and optionally `KNOWN_HOSTS_PATH` for stricter production-grade SSH verification.
 
 ## API Reference
+
+## Architecture
+
+```text
+src/
+├── container.ts       - Dependency injection wiring
+├── config.ts          - ConfigManager (env + programmatic overrides)
+├── index.ts           - CLI entry point & graceful shutdown
+├── mcp.ts             - MCP server (thin: delegates to ToolRegistry)
+├── tools/
+│   ├── registry.ts    - ToolRegistry (routes CallTool requests)
+│   ├── types.ts       - ToolProvider interface
+│   ├── session.provider.ts
+│   ├── process.provider.ts
+│   ├── fs.provider.ts
+│   ├── ensure.provider.ts
+│   ├── system.provider.ts
+│   ├── transfer.provider.ts
+│   └── tunnel.provider.ts
+├── session.ts         - SessionManager (LRU cache + TTL)
+├── rate-limiter.ts    - Sliding window rate limiter
+├── metrics.ts         - Prometheus-compatible metrics
+├── safety.ts          - Command safety warnings (non-blocking)
+└── ...                - fs-tools, process, ensure, detect, ...
+```
+
+### Adding a new tool group
+
+1. Create `src/tools/<your-namespace>.provider.ts` implementing `ToolProvider`
+2. Register it in `src/tools/index.ts`
+3. Add unit tests to `test/unit/tools/<your-namespace>.provider.test.ts`
+
+No changes to `mcp.ts` are needed.
 
 ### Session tools
 

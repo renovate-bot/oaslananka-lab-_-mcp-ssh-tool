@@ -89,9 +89,7 @@ export const PROMPT_SUGGESTIONS: PromptSuggestion[] = [
 /**
  * Get prompts by category
  */
-export function getPromptsByCategory(
-  category: PromptSuggestion["category"],
-): PromptSuggestion[] {
+export function getPromptsByCategory(category: PromptSuggestion["category"]): PromptSuggestion[] {
   return PROMPT_SUGGESTIONS.filter((p) => p.category === category);
 }
 
@@ -107,21 +105,13 @@ export function getRandomPrompts(count = 5): PromptSuggestion[] {
  * Format prompts for display in AI assistant
  */
 export function formatPromptsForDisplay(): string {
-  const categories = [
-    "session",
-    "command",
-    "file",
-    "system",
-    "package",
-  ] as const;
+  const categories = ["session", "command", "file", "system", "package"] as const;
   const lines: string[] = ["## SSH MCP Tool - What You Can Do\n"];
 
   for (const category of categories) {
     const prompts = getPromptsByCategory(category);
     if (prompts.length > 0) {
-      lines.push(
-        `### ${category.charAt(0).toUpperCase() + category.slice(1)} Operations`,
-      );
+      lines.push(`### ${category.charAt(0).toUpperCase() + category.slice(1)} Operations`);
       for (const p of prompts) {
         lines.push(`- **${p.name}**: "${p.prompt}"`);
       }

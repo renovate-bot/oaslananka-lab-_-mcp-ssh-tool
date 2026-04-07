@@ -2,18 +2,30 @@
  * Logging utilities with sensitive data redaction
  */
 
-const SENSITIVE_FIELDS = [
-  "password",
-  "privatekey",
-  "passphrase",
-  "sudopassword",
+const SENSITIVE_PATTERNS = [
+  /password/i,
+  /privatekey/i,
+  /passphrase/i,
+  /sudopassword/i,
+  /secret/i,
+  /token/i,
+  /credential/i,
+  /auth/i,
+  /api.?key/i,
+  /bearer/i,
+  /private.?key/i,
+  /pem/i,
 ];
 const REDACTED = "****";
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 /**
  * Redacts sensitive information from an object
  */
-export function redactSensitiveData(obj: any): any {
+export function redactSensitiveData(obj: unknown): unknown {
   if (obj === null || obj === undefined) {
     return obj;
   }
@@ -26,10 +38,10 @@ export function redactSensitiveData(obj: any): any {
     return obj.map(redactSensitiveData);
   }
 
-  if (typeof obj === "object") {
-    const redacted: any = {};
+  if (isRecord(obj)) {
+    const redacted: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(obj)) {
-      if (SENSITIVE_FIELDS.includes(key.toLowerCase())) {
+      if (SENSITIVE_PATTERNS.some((pattern) => pattern.test(key))) {
         redacted[key] = value ? REDACTED : value;
       } else {
         redacted[key] = redactSensitiveData(value);
@@ -50,6 +62,12 @@ export function redactErrorMessage(message: string): string {
     /password[=:\s]+[^\s]+/gi,
     /key[=:\s]+[^\s]+/gi,
     /passphrase[=:\s]+[^\s]+/gi,
+    /auth[=:\s]+[^\s]+/gi,
+    /token[=:\s]+[^\s]+/gi,
+    /api.?key[=:\s]+[^\s]+/gi,
+    /bearer\s+[^\s]+/gi,
+    /private.?key[=:\s]+[^\s]+/gi,
+    /pem[=:\s]+[^\s]+/gi,
     /-----BEGIN[^-]+-----[\s\S]*?-----END[^-]+-----/gi,
   ];
 
@@ -81,7 +99,7 @@ export class Logger {
     this.level = level;
   }
 
-  private log(level: LogLevel, message: string, data?: any) {
+  private log(level: LogLevel, message: string, data?: unknown) {
     if (level > this.level) {
       return;
     }
@@ -100,20 +118,20 @@ export class Logger {
     process.stderr.write(output + "\n");
   }
 
-  error(message: string, data?: any) {
+  error(message: string, data?: unknown) {
     const redactedMessage = redactErrorMessage(message);
     this.log(LogLevel.ERROR, redactedMessage, data);
   }
 
-  warn(message: string, data?: any) {
+  warn(message: string, data?: unknown) {
     this.log(LogLevel.WARN, message, data);
   }
 
-  info(message: string, data?: any) {
+  info(message: string, data?: unknown) {
     this.log(LogLevel.INFO, message, data);
   }
 
-  debug(message: string, data?: any) {
+  debug(message: string, data?: unknown) {
     this.log(LogLevel.DEBUG, message, data);
   }
 }
@@ -126,7 +144,7 @@ const LOG_LEVEL_MAP: Record<string, LogLevel> = {
   debug: LogLevel.DEBUG,
 };
 
-const envLogLevel = process.env.LOG_LEVEL?.toLowerCase() || "info";
+const envLogLevel = process.env.LOG_LEVEL?.toLowerCase() ?? "info";
 const logLevel = LOG_LEVEL_MAP[envLogLevel] ?? LogLevel.INFO;
 
 export const logger = new Logger(logLevel);

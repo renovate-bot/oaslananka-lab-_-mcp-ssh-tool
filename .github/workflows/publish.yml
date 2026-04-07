@@ -1,4 +1,17 @@
-name: Publish (Manual — GitHub Mirror Only)
+# ──────────────────────────────────────────────────────────────────────────────
+# mcp-ssh-tool — Emergency Manual Publish (GitHub)
+#
+# PRIMARY CI/CD is on Azure DevOps (/.azure/pipelines/).
+# This workflow exists as a manual fallback ONLY.
+#
+# When to use:
+#   - Azure Pipelines is temporarily unavailable
+#   - Hotfix needed and Azure access is blocked
+#
+# How to trigger:
+#   GitHub → Actions tab → "Publish (Manual)" → "Run workflow" → type YES
+# ──────────────────────────────────────────────────────────────────────────────
+name: Publish (Manual — Emergency GitHub Fallback)
 
 # SADECE MANUEL TETİKLEME
 # CI/CD Azure DevOps'ta çalışıyor.

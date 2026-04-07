@@ -17,10 +17,7 @@ export function createAuthError(message: string, hint?: string): SSHMCPError {
 /**
  * Creates a connection error
  */
-export function createConnectionError(
-  message: string,
-  hint?: string,
-): SSHMCPError {
+export function createConnectionError(message: string, hint?: string): SSHMCPError {
   return new SSHMCPError(
     ErrorCode.ECONN,
     message,
@@ -34,10 +31,7 @@ export function createConnectionError(
 /**
  * Creates a timeout error
  */
-export function createTimeoutError(
-  message: string,
-  hint?: string,
-): SSHMCPError {
+export function createTimeoutError(message: string, hint?: string): SSHMCPError {
   return new SSHMCPError(
     ErrorCode.ETIMEOUT,
     message,
@@ -65,10 +59,7 @@ export function createSudoError(message: string, hint?: string): SSHMCPError {
 /**
  * Creates a package manager error
  */
-export function createPackageManagerError(
-  message: string,
-  hint?: string,
-): SSHMCPError {
+export function createPackageManagerError(message: string, hint?: string): SSHMCPError {
   return new SSHMCPError(
     ErrorCode.EPMGR,
     message,
@@ -82,10 +73,7 @@ export function createPackageManagerError(
 /**
  * Creates a filesystem error
  */
-export function createFilesystemError(
-  message: string,
-  hint?: string,
-): SSHMCPError {
+export function createFilesystemError(message: string, hint?: string): SSHMCPError {
   return new SSHMCPError(
     ErrorCode.EFS,
     message,
@@ -113,10 +101,7 @@ export function createPatchError(message: string, hint?: string): SSHMCPError {
 /**
  * Creates a bad request error
  */
-export function createBadRequestError(
-  message: string,
-  hint?: string,
-): SSHMCPError {
+export function createBadRequestError(message: string, hint?: string): SSHMCPError {
   return new SSHMCPError(
     ErrorCode.EBADREQ,
     message,
@@ -130,11 +115,7 @@ export function createBadRequestError(
 /**
  * Wraps an unknown error into an SSH MCP error
  */
-export function wrapError(
-  error: unknown,
-  code: ErrorCode,
-  hint?: string,
-): SSHMCPError {
+export function wrapError(error: unknown, code: ErrorCode, hint?: string): SSHMCPError {
   if (error instanceof SSHMCPError) {
     return error;
   }
