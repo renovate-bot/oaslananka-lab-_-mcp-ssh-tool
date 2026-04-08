@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.5] - 2026-04-08
+
+### Added
+
+- Optional OpenTelemetry tracing with OTLP HTTP export support
+- MCP resources for active sessions, metrics snapshots, Prometheus output, and configured SSH hosts
+- Integration test layer for live SSH runtime and MCP boundary behavior
+- Changesets support for version intent tracking
+- Package content verification and license compliance scripts
+
+### Changed
+
+- Azure DevOps CI now includes integration-test, license, and package-content quality gates
+- README, configuration docs, contributor guidance, and agent guidance now document tracing, resources, and release flow
+- Docker test fixture now supports integration tests alongside E2E runs
+
 ## [1.3.3] - 2026-04-08
 
 ### Added
@@ -117,5 +133,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LRU session cache with TTL
 - Sensitive data redaction in logs
 
+[1.3.5]: https://github.com/oaslananka/mcp-ssh-tool/releases/tag/v1.3.5
 [1.3.3]: https://github.com/oaslananka/mcp-ssh-tool/releases/tag/v1.3.3
 [1.0.0]: https://github.com/oaslananka/mcp-ssh-tool/releases/tag/v1.0.0

@@ -13,7 +13,7 @@ import { listResources, readResource } from "./resources.js";
 import { withSpan } from "./telemetry.js";
 import { createToolRegistry } from "./tools/index.js";
 
-export const SERVER_VERSION = "1.3.4";
+export const SERVER_VERSION = "1.3.5";
 
 export class SSHMCPServer {
   private readonly server: Server;
