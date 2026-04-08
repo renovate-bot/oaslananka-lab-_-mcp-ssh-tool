@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-04-08
+
+### Added
+
+- Codex integration documentation with `codex mcp add` setup, verification, and optional host key hardening examples
+- Generic MCP client guidance for Claude Desktop, Antigravity, and other stdio-compatible MCP tools
+- INSTALL guide examples for both `servers` and `mcpServers` style client configurations
+
+### Changed
+
+- Published npm package `mcp-ssh-tool@1.3.3`
+- Expanded README and INSTALL documentation to cover a broader set of MCP clients
+
 ## [1.3.0] - 2026-04-01
 
 ### Fixed
@@ -104,4 +117,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - LRU session cache with TTL
 - Sensitive data redaction in logs
 
+[1.3.3]: https://github.com/oaslananka/mcp-ssh-tool/releases/tag/v1.3.3
 [1.0.0]: https://github.com/oaslananka/mcp-ssh-tool/releases/tag/v1.0.0
