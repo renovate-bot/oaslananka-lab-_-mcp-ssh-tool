@@ -2,8 +2,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { URL } from "node:url";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { createContainer } from "./container.js";
-import { SSHMCPServer } from "./mcp.js";
+import { SERVER_VERSION, SSHMCPServer } from "./mcp.js";
 import { logger } from "./logging.js";
+import { initTelemetry, shutdownTelemetry, withSpan } from "./telemetry.js";
 
 interface HttpSession {
   server: SSHMCPServer;
@@ -14,6 +15,7 @@ const port = Number(process.env.PORT ?? 3000);
 const endpoint = "/mcp";
 const sessions = new Map<string, HttpSession>();
 const container = createContainer();
+initTelemetry({ serviceVersion: SERVER_VERSION });
 
 function sendJson(res: ServerResponse, statusCode: number, payload: Record<string, unknown>) {
   res.writeHead(statusCode, { "Content-Type": "application/json" });
@@ -21,63 +23,90 @@ function sendJson(res: ServerResponse, statusCode: number, payload: Record<strin
 }
 
 async function handleSseConnection(_req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const transport = new SSEServerTransport(endpoint, res);
-  const sessionId = transport.sessionId;
-  const server = new SSHMCPServer(container);
+  await withSpan(
+    "http.sse.connect",
+    async (span) => {
+      const transport = new SSEServerTransport(endpoint, res);
+      const sessionId = transport.sessionId;
+      const server = new SSHMCPServer(container);
 
-  transport.onclose = () => {
-    sessions.delete(sessionId);
-    logger.info("HTTP/SSE MCP session closed", { sessionId });
-  };
+      span.setAttribute("http.route", endpoint);
+      span.setAttribute("mcp.session.id", sessionId);
 
-  transport.onerror = (error) => {
-    logger.error("HTTP/SSE transport error", {
-      sessionId,
-      error: error.message,
-    });
-  };
+      transport.onclose = () => {
+        sessions.delete(sessionId);
+        logger.info("HTTP/SSE MCP session closed", { sessionId });
+      };
 
-  sessions.set(sessionId, { server, transport });
+      transport.onerror = (error) => {
+        logger.error("HTTP/SSE transport error", {
+          sessionId,
+          error: error.message,
+        });
+      };
 
-  try {
-    await server.connect(transport);
-    logger.info("HTTP/SSE MCP session established", { sessionId });
-  } catch (error) {
-    sessions.delete(sessionId);
-    logger.error("Failed to establish HTTP/SSE MCP session", { error });
-    if (!res.headersSent) {
-      sendJson(res, 500, { error: "Failed to establish MCP SSE session" });
-    }
-  }
+      sessions.set(sessionId, { server, transport });
+
+      try {
+        await server.connect(transport);
+        logger.info("HTTP/SSE MCP session established", { sessionId });
+      } catch (error) {
+        sessions.delete(sessionId);
+        logger.error("Failed to establish HTTP/SSE MCP session", { error });
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: "Failed to establish MCP SSE session" });
+        }
+      }
+    },
+    {
+      attributes: {
+        "http.route": endpoint,
+        "http.method": "GET",
+      },
+    },
+  );
 }
 
 async function handleMessagePost(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const baseUrl = `http://${req.headers.host ?? "localhost"}`;
-  const requestUrl = new URL(req.url ?? endpoint, baseUrl);
-  const sessionId = requestUrl.searchParams.get("sessionId");
+  await withSpan(
+    "http.sse.message",
+    async (span) => {
+      const baseUrl = `http://${req.headers.host ?? "localhost"}`;
+      const requestUrl = new URL(req.url ?? endpoint, baseUrl);
+      const sessionId = requestUrl.searchParams.get("sessionId");
 
-  if (!sessionId) {
-    sendJson(res, 400, { error: "Missing sessionId query parameter" });
-    return;
-  }
+      if (!sessionId) {
+        sendJson(res, 400, { error: "Missing sessionId query parameter" });
+        return;
+      }
 
-  const session = sessions.get(sessionId);
-  if (!session) {
-    sendJson(res, 404, { error: "Session not found" });
-    return;
-  }
+      span.setAttribute("mcp.session.id", sessionId);
 
-  try {
-    await session.transport.handlePostMessage(req, res);
-  } catch (error) {
-    logger.error("Failed to handle HTTP/SSE MCP message", {
-      sessionId,
-      error,
-    });
-    if (!res.headersSent) {
-      sendJson(res, 500, { error: "Failed to process MCP message" });
-    }
-  }
+      const session = sessions.get(sessionId);
+      if (!session) {
+        sendJson(res, 404, { error: "Session not found" });
+        return;
+      }
+
+      try {
+        await session.transport.handlePostMessage(req, res);
+      } catch (error) {
+        logger.error("Failed to handle HTTP/SSE MCP message", {
+          sessionId,
+          error,
+        });
+        if (!res.headersSent) {
+          sendJson(res, 500, { error: "Failed to process MCP message" });
+        }
+      }
+    },
+    {
+      attributes: {
+        "http.route": endpoint,
+        "http.method": "POST",
+      },
+    },
+  );
 }
 
 const httpServer = createServer((req, res) => {
@@ -136,6 +165,7 @@ async function shutdown(signal: string) {
 
   container.rateLimiter.destroy();
   await container.sessionManager.destroy();
+  await shutdownTelemetry();
   process.exit(0);
 }
 

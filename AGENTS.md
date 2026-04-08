@@ -88,6 +88,15 @@ Guidance for AI agents using `mcp-ssh-tool` tools.
 | `os_detect` | Detect OS family, distro, version, and package manager. Call once per session before using `ensure_package`. |
 | `get_metrics` | Get CPU, memory, disk, and load average. |
 
+### MCP Resources
+
+These resources are exposed through MCP `resources/list` and `resources/read`:
+
+- `mcp-ssh-tool://sessions/active` → active SSH sessions in JSON
+- `mcp-ssh-tool://metrics/json` → metrics snapshot in JSON
+- `mcp-ssh-tool://metrics/prometheus` → Prometheus metrics text
+- `mcp-ssh-tool://ssh-config/hosts` → parsed host aliases from local SSH config
+
 ---
 
 ### Tunnels

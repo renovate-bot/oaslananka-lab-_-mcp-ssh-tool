@@ -4,10 +4,13 @@ import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import {
   CallToolRequestSchema,
   ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { AppContainer } from "./container.js";
 import { logger } from "./logging.js";
+import { listResources, readResource } from "./resources.js";
+import { withSpan } from "./telemetry.js";
 import { createToolRegistry } from "./tools/index.js";
 
 export const SERVER_VERSION = "1.3.4";
@@ -36,43 +39,87 @@ export class SSHMCPServer {
   }
 
   private setupHandlers(): void {
-    this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-      resources: [],
-    }));
+    this.server.setRequestHandler(ListResourcesRequestSchema, async () =>
+      withSpan(
+        "mcp.list_resources",
+        async (span) => {
+          span.setAttribute("mcp.request.kind", "list_resources");
+          return listResources();
+        },
+        {
+          attributes: {
+            "mcp.request.kind": "list_resources",
+          },
+        },
+      ),
+    );
+
+    this.server.setRequestHandler(ReadResourceRequestSchema, async (request) =>
+      withSpan(
+        "mcp.read_resource",
+        async (span) => {
+          span.setAttribute("mcp.request.kind", "read_resource");
+          span.setAttribute("mcp.resource.uri", request.params.uri);
+          return readResource(request.params.uri, this.container);
+        },
+        {
+          attributes: {
+            "mcp.request.kind": "read_resource",
+            "mcp.resource.uri": request.params.uri,
+          },
+        },
+      ),
+    );
 
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
       tools: this.registry.getAllTools(),
     }));
 
-    this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
-      const { name, arguments: args } = request.params;
+    this.server.setRequestHandler(CallToolRequestSchema, async (request) =>
+      withSpan(
+        "mcp.call_tool",
+        async (span) => {
+          const { name, arguments: args } = request.params;
 
-      if (this.container.config.get("rateLimit").enabled) {
-        const rateCheck = this.container.rateLimiter.check("global");
-        if (!rateCheck.allowed) {
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: JSON.stringify(
+          span.setAttribute("mcp.request.kind", "call_tool");
+          span.setAttribute("mcp.tool.name", name);
+
+          if (this.container.config.get("rateLimit").enabled) {
+            const rateCheck = this.container.rateLimiter.check("global");
+            if (!rateCheck.allowed) {
+              span.setAttribute("mcp.rate_limited", true);
+              return {
+                content: [
                   {
-                    error: true,
-                    code: "ERATELIMIT",
-                    message: `Rate limit exceeded for tool: ${name}`,
-                    resetIn: rateCheck.resetIn,
+                    type: "text" as const,
+                    text: JSON.stringify(
+                      {
+                        error: true,
+                        code: "ERATELIMIT",
+                        message: `Rate limit exceeded for tool: ${name}`,
+                        resetIn: rateCheck.resetIn,
+                      },
+                      null,
+                      2,
+                    ),
                   },
-                  null,
-                  2,
-                ),
-              },
-            ],
-            isError: true,
-          };
-        }
-      }
+                ],
+                isError: true,
+              };
+            }
+          }
 
-      return this.registry.dispatch(name, args ?? {});
-    });
+          span.setAttribute("mcp.rate_limited", false);
+          return this.registry.dispatch(name, args ?? {});
+        },
+        {
+          attributes: {
+            "mcp.request.kind": "call_tool",
+            "mcp.tool.name": request.params.name,
+          },
+        },
+      ),
+    );
   }
 
   private setupErrorHandling(): void {

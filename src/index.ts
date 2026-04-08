@@ -12,8 +12,9 @@ import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { createContainer, type AppContainer } from "./container.js";
-import { SSHMCPServer } from "./mcp.js";
+import { SERVER_VERSION, SSHMCPServer } from "./mcp.js";
 import { logger } from "./logging.js";
+import { initTelemetry, shutdownTelemetry } from "./telemetry.js";
 
 function getPackageInfo() {
   try {
@@ -114,6 +115,9 @@ async function main() {
     logger.info("Starting SSH MCP Server...");
 
     container = createContainer();
+    initTelemetry({
+      serviceVersion: SERVER_VERSION,
+    });
     const server = new SSHMCPServer(container);
     await server.run();
 
@@ -192,6 +196,7 @@ async function gracefulShutdown(signal: string) {
     if (container) {
       await container.sessionManager.destroy();
     }
+    await shutdownTelemetry();
   } catch (error) {
     logger.error("Shutdown error", { error });
   }

@@ -90,6 +90,7 @@ docs(readme): update installation instructions
 - Write tests for new features
 - Maintain test coverage
 - Run `npm test` before submitting
+- Run `npm run test:integration` when the change affects SSH runtime behavior or MCP server wiring
 
 ### Pull Request Process
 
@@ -114,11 +115,12 @@ GitHub Actions is intentionally **manual-only** for emergency fallback publishin
 
 Primary release automation runs via Azure DevOps.
 
-1. Update `CHANGELOG.md` with the new version and changes.
-2. Update version in `package.json`.
-3. Run `npm run sync-version`.
-4. Commit and push the changes.
-5. Create and push a tag: `git tag v1.3.1 && git push origin v1.3.1`
+1. Create a changeset for user-visible work: `npm run changeset`
+2. When preparing a release, apply pending changesets: `npm run changeset:version`
+3. Review the generated version bump, then run `npm run sync-version`
+4. Run quality gates locally: `npm run lint`, `npm test`, `npm run test:integration`, `npm run build`
+5. Commit and push the versioned changes.
+6. Create and push a tag: `git tag v1.3.4 && git push origin v1.3.4`
 
 Azure publish validation checks:
 
@@ -161,6 +163,13 @@ mcp-ssh-tool/
 3. Register the provider in `src/tools/index.ts`
 4. Add tests in `test/unit/tools/`
 5. Update documentation
+
+### Adding a New MCP Resource
+
+1. Add the resource definition in `src/resources.ts`
+2. Extend `readResource()` to return the new payload
+3. Add unit coverage in `test/unit/resources.test.ts`
+4. Add an integration assertion in `test/integration/mcp.integration.test.ts` if the resource depends on live runtime state
 
 ### Adding New Dependencies
 

@@ -70,6 +70,13 @@ Once configured, you can use natural language with your MCP client:
 - `file_upload`, `file_download` - SFTP file transfer helpers
 - `tunnel_local_forward`, `tunnel_remote_forward`, `tunnel_close`, `tunnel_list` - Tunnel management
 
+### Available Resources
+
+- `mcp-ssh-tool://sessions/active` - Active sessions as JSON
+- `mcp-ssh-tool://metrics/json` - Metrics snapshot as JSON
+- `mcp-ssh-tool://metrics/prometheus` - Prometheus metrics export
+- `mcp-ssh-tool://ssh-config/hosts` - Parsed local SSH host aliases
+
 ## Overview
 
 The SSH MCP Server acts as a bridge between GitHub Copilot and remote systems via SSH. It supports:
@@ -378,6 +385,8 @@ src/
 │   ├── transfer.provider.ts
 │   └── tunnel.provider.ts
 ├── session.ts         - SessionManager (LRU cache + TTL)
+├── resources.ts       - MCP resources for sessions, metrics, and SSH hosts
+├── telemetry.ts       - Optional OpenTelemetry tracing
 ├── rate-limiter.ts    - Sliding window rate limiter
 ├── metrics.ts         - Prometheus-compatible metrics
 ├── safety.ts          - Command safety warnings (non-blocking)
@@ -714,6 +723,7 @@ Sensitive data is automatically redacted from logs:
 - [docs/configuration.md](docs/configuration.md) - environment variables, runtime modes, and example `.env` settings
 - [docs/security-model.md](docs/security-model.md) - redaction, host key verification, rate limiting, and safety guardrails
 - [docs/troubleshooting.md](docs/troubleshooting.md) - common setup, connection, and runtime issues
+- [CONTRIBUTING.md](CONTRIBUTING.md) - development workflow, integration tests, and Changesets release flow
 
 ## Development
 
@@ -731,10 +741,14 @@ npm install
 npm run build      # Compile TypeScript
 npm run dev        # Watch mode compilation
 npm run test       # Run unit tests
+npm run test:integration  # Run integration tests (requires RUN_SSH_INTEGRATION=1)
 npm run test:e2e   # Run E2E tests (requires RUN_SSH_E2E=1)
 npm run lint       # Type-check (no emit)
 npm run format     # Run Prettier
 npm run test:coverage
+npm run licenses:check
+npm run pack:check
+npm run changeset
 npm run docs
 ```
 
@@ -750,6 +764,12 @@ npm test
 
 ```bash
 RUN_SSH_E2E=1 npm run test:e2e
+```
+
+**Integration Tests (optional):**
+
+```bash
+RUN_SSH_INTEGRATION=1 npm run test:integration
 ```
 
 ## License

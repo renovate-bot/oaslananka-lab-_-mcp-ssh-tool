@@ -31,8 +31,9 @@ services:
         condition: service_healthy
     environment:
       - RUN_SSH_E2E=1
+      - RUN_SSH_INTEGRATION=1
       - TEST_SSH_HOST=ssh-server
       - TEST_SSH_PORT=2222
       - TEST_SSH_USER=testuser
       - TEST_SSH_PASS=testpass
-    command: npm run test:e2e
+    command: sh -lc "npm run test:e2e && npm run test:integration"

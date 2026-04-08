@@ -4,6 +4,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import {
   CallToolRequestSchema,
   ListResourcesRequestSchema,
+  ReadResourceRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createTestContainer, type AppContainer } from "../../src/container.js";
@@ -70,9 +71,30 @@ describe("SSHMCPServer", () => {
     const server = new SSHMCPServer(container);
     const handlers = getHandlers(server);
 
-    await expect(handlers.get(ListResourcesRequestSchema)?.()).resolves.toEqual({
-      resources: [],
-    });
+    await expect(handlers.get(ListResourcesRequestSchema)?.()).resolves.toEqual(
+      expect.objectContaining({
+        resources: expect.arrayContaining([
+          expect.objectContaining({ uri: "mcp-ssh-tool://sessions/active" }),
+          expect.objectContaining({ uri: "mcp-ssh-tool://metrics/json" }),
+        ]),
+      }),
+    );
+
+    await expect(
+      handlers.get(ReadResourceRequestSchema)?.({
+        params: { uri: "mcp-ssh-tool://metrics/json" },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        contents: [
+          expect.objectContaining({
+            uri: "mcp-ssh-tool://metrics/json",
+            mimeType: "application/json",
+            text: expect.stringContaining('"sessions"'),
+          }),
+        ],
+      }),
+    );
 
     await expect(handlers.get(ListToolsRequestSchema)?.()).resolves.toEqual(
       expect.objectContaining({

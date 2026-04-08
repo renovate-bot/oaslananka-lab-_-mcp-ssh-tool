@@ -10,6 +10,9 @@ and environment variables win over built-in defaults.
 |----------|---------|-------------|
 | `LOG_LEVEL` | `info` | Logger verbosity. Supported values: `error`, `warn`, `info`, `debug`. |
 | `LOG_FORMAT` | `plain` | Log output format. Use `json` for log shippers and aggregators. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | unset | Enables OpenTelemetry tracing when set. A base OTLP URL is normalized to `/v1/traces`. |
+| `OTEL_SERVICE_NAME` | `mcp-ssh-tool` | Service name reported in OpenTelemetry spans. |
+| `OTEL_SERVICE_VERSION` | package version | Optional service version override for tracing backends. |
 | `STRICT_HOST_KEY_CHECKING` | `false` | Enables SSH host key verification in the session manager. |
 | `KNOWN_HOSTS_PATH` | `~/.ssh/known_hosts` | Overrides the `known_hosts` file used when strict host checking is enabled. |
 | `SSH_DEFAULT_KEY_DIR` | `~/.ssh` | Directory used for SSH key auto-discovery (`id_ed25519`, `id_rsa`, `id_ecdsa`). |
@@ -33,6 +36,9 @@ and environment variables win over built-in defaults.
 ```dotenv
 LOG_LEVEL=info
 LOG_FORMAT=json
+OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+OTEL_SERVICE_NAME=mcp-ssh-tool
+OTEL_SERVICE_VERSION=1.3.4
 STRICT_HOST_KEY_CHECKING=true
 KNOWN_HOSTS_PATH=/etc/ssh/ssh_known_hosts
 SSH_MCP_MAX_SESSIONS=50
@@ -50,5 +56,8 @@ PORT=3000
 - `SSH_AUTH_SOCK` is consumed automatically when SSH agent authentication is
   available. It is usually supplied by the host environment and does not need
   to be stored in `.env`.
+- When OpenTelemetry is disabled, `withSpan()` remains a no-op wrapper around
+  the active tracer provider, so local development does not require an OTLP
+  collector.
 - Package and service helpers intentionally target Unix-like systems. Windows
   hosts can still use the lower-level SSH and file tools.
