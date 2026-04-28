@@ -1,6 +1,8 @@
 # mcp-ssh-tool
 
 [![npm version](https://img.shields.io/npm/v/mcp-ssh-tool.svg)](https://www.npmjs.com/package/mcp-ssh-tool)
+[![CI](https://github.com/oaslananka-lab/mcp-ssh-tool/actions/workflows/ci.yml/badge.svg)](https://github.com/oaslananka-lab/mcp-ssh-tool/actions/workflows/ci.yml)
+[![Security](https://github.com/oaslananka-lab/mcp-ssh-tool/actions/workflows/security.yml/badge.svg)](https://github.com/oaslananka-lab/mcp-ssh-tool/actions/workflows/security.yml)
 [![Official MCP Registry](https://img.shields.io/badge/MCP%20Registry-active-green.svg)](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.oaslananka%2Fmcp-ssh-tool/versions/latest)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![npm downloads](https://img.shields.io/npm/dm/mcp-ssh-tool.svg)](https://www.npmjs.com/package/mcp-ssh-tool)
@@ -18,6 +20,14 @@ v2 is secure by default: strict host-key verification is on, root login is off, 
 - **Portability:** SFTP first, POSIX/BusyBox-aware shell fallbacks for basic file operations, and explicit support boundaries.
 
 ## Quick Start
+
+Run without installing:
+
+```bash
+npx -y mcp-ssh-tool --version
+```
+
+Or install globally:
 
 ```bash
 npm install -g mcp-ssh-tool
@@ -208,13 +218,16 @@ Local quality gates are layered:
 
 - `pre-commit`: formats staged files and lints staged TypeScript only
 - `pre-push`: runs `npm run check:push`
-- manual/full parity: `npm run check`
+- `task hooks`: runs tracked npm hooks plus `.pre-commit-config.yaml` hooks when `pre-commit` is installed
+- manual/full parity: `task ci` or `npm run check`
 
 ## CI/CD Ownership
 
-The personal repository `https://github.com/oaslananka/mcp-ssh-tool` is the main source repository. Automatic CI/CD and trusted npm publishing run from the organization mirror `https://github.com/oaslananka-lab/mcp-ssh-tool`; Azure, GitLab, and personal GitHub release actions are manual-only. The npm package `repository.url` intentionally points at the org mirror so npm provenance can verify that the published artifact came from the same repository that built it.
+The personal repository `https://github.com/oaslananka/mcp-ssh-tool` is the canonical source repository. Automatic CI/CD, supply-chain security checks, trusted npm publishing, and MCP Registry publishing run only from `https://github.com/oaslananka-lab/mcp-ssh-tool`. The org repository pulls from canonical source; personal-repo push and publish workflows are disabled.
 
-See [docs/ci-cd-topology.md](docs/ci-cd-topology.md) for mirror secrets, release flow, and manual fallback guidance.
+The npm package `repository.url` intentionally points at the org repository so npm provenance can verify that the published artifact came from the same GitHub Actions repository that built it.
+
+See [docs/ci-cd-topology.md](docs/ci-cd-topology.md) for org sync, release flow, and manual fallback guidance.
 
 ## Documentation
 
@@ -222,6 +235,14 @@ See [docs/ci-cd-topology.md](docs/ci-cd-topology.md) for mirror secrets, release
 - [SECURITY_DECISIONS.md](SECURITY_DECISIONS.md)
 - [MIGRATION.md](MIGRATION.md)
 - [docs/ci-cd-topology.md](docs/ci-cd-topology.md)
+- [docs/development.md](docs/development.md)
+- [docs/release.md](docs/release.md)
+- [docs/doppler.md](docs/doppler.md)
+- [docs/operations.md](docs/operations.md)
+- [docs/branch-protection.md](docs/branch-protection.md)
+- [docs/maintenance-policy.md](docs/maintenance-policy.md)
+- [docs/api-stability.md](docs/api-stability.md)
+- [docs/threat-model.md](docs/threat-model.md)
 - [docs/configuration.md](docs/configuration.md)
 - [docs/security-model.md](docs/security-model.md)
 - [docs/troubleshooting.md](docs/troubleshooting.md)

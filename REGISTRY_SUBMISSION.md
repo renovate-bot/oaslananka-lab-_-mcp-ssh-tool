@@ -4,10 +4,10 @@
 - **NPM Package:** mcp-ssh-tool
 - **Command:** `mcp-ssh-tool`
 - **Entrypoint:** `dist/index.js`
-- **Runtime:** node (>=20)
+- **Runtime:** node (`22.22.2+` or `24.14.1+`)
 - **Transport:** stdio
 - **Supported Platforms:** linux, macos, windows
-- **Capabilities:** tools (true), resources (true), prompts (false)
+- **Capabilities:** tools (true), resources (true), prompts (true)
 
 ### Minimal MCP client config
 
@@ -24,7 +24,8 @@
 ```
 
 ### Notes
-- Build before use when installing from source: `npm install && npm run build`.
-- Uses stdio transport; no network listeners are opened by the server itself.
+- Build before use when installing from source: `npm ci && npm run build`.
+- The registry metadata is published by the org `trusted-publish.yml` workflow after npm publication.
+- stdio is the registry transport; Streamable HTTP remains available for explicit runtime use.
 - Logs redact passwords/private keys/passphrases/sudo passwords by default.
-- Exposes MCP resources for active sessions, metrics, and configured SSH hosts.
+- Exposes MCP resources for active sessions, metrics, policy, audit events, capability support, and configured SSH hosts.

@@ -49,7 +49,7 @@ If bound beyond loopback, also set `SSH_MCP_HTTP_ALLOWED_ORIGINS` and terminate 
 
 ## Release Controls
 
-The personal GitHub repository is the source of truth, while the `oaslananka-lab` GitHub organization mirror owns automatic CI/CD, security scanning, and npm trusted-publishing/provenance. Azure Pipelines are manual-only validation and release-control backups. Before publishing:
+The personal GitHub repository is the canonical source, while the `oaslananka-lab` GitHub organization repository owns automatic CI/CD, security scanning, and npm trusted-publishing/provenance. Azure Pipelines are manual-only validation and release-control backups. Before publishing:
 
 - `npm run lint`
 - `npm test`

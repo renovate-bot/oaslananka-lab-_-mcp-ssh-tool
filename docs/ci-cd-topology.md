@@ -1,97 +1,76 @@
 # CI/CD Topology
 
-`mcp-ssh-tool` uses a split ownership model so the public source of truth stays under the personal account while automated release controls run from the organization mirror.
+`mcp-ssh-tool` uses a split repository model: the personal repository is canonical source, while the organization repository is the only automation and release boundary.
 
 ## Repository Roles
 
 | Repository | Role | Automation |
 |------------|------|------------|
-| `https://github.com/oaslananka/mcp-ssh-tool` | Main source repository | Manual-only GitHub workflows. |
-| `https://github.com/oaslananka-lab/mcp-ssh-tool` | CI/CD and trusted publish mirror | Automatic GitHub CI/security plus manual trusted npm publish. |
-| GitLab mirror | Optional source mirror | Manual-only pipeline from GitLab web UI. |
-| Azure DevOps project | Manual validation and release-control backup | Manual-only YAML pipelines. |
+| `https://github.com/oaslananka/mcp-ssh-tool` | Canonical source and PR target | GitHub Actions disabled after one-time repository setting change. |
+| `https://github.com/oaslananka-lab/mcp-ssh-tool` | CI/CD, security scanning, trusted npm publish, MCP Registry publish | All workflow jobs are guarded by `github.repository == 'oaslananka-lab/mcp-ssh-tool'`. |
+| Azure DevOps | Optional backup validation record | Manual-only; not part of the trusted publish path. |
 
-The same source code is pushed to both GitHub repositories. The personal repository remains the canonical development home; the org repository is the automated validation and provenance boundary. The npm package `repository.url` intentionally points at the org mirror because npm provenance requires the package metadata repository to match the GitHub Actions repository that signs the artifact.
+The org repository pulls source from canonical with `.github/workflows/sync-from-canonical.yml`. The old personal-repo push mirror workflow was removed to avoid accidental personal-repo automation.
 
-## GitHub Workflows
+## One-Time Personal Repo Action Disable
 
-### Organization mirror: `oaslananka-lab`
-
-Automatic jobs run only when `github.repository_owner == "oaslananka-lab"`:
-
-- `.github/workflows/ci.yml`: `npm run check:quality`, Node 22/24 unit coverage, integration fixture, `npm run check:package`, SBOM, package hash.
-- `.github/workflows/security.yml`: CodeQL, dependency review, scheduled security scan.
-- `.github/workflows/trusted-publish.yml`: manual npm trusted publishing with provenance after Azure validation.
-
-### Personal source: `oaslananka`
-
-The personal repository is intentionally manual-only:
-
-- `.github/workflows/mirror-source.yml`: manually mirrors the current ref to `oaslananka-lab/mcp-ssh-tool` and optionally to GitLab.
-- `.github/workflows/publish.yml`: emergency manual npm fallback for the personal repository only.
-
-The shared CI/security workflows still contain push and pull-request events because the same workflow files are mirrored to the org repository. In the personal repository, their jobs are owner-gated and skip unless started manually.
-
-## Required Secrets
-
-GitHub should store only the Doppler bootstrap secrets needed to fetch runtime secrets:
-
-| Location | Secret | Purpose |
-|----------|--------|---------|
-| Personal GitHub repo | `DOPPLER_TOKEN` | Doppler token with read access to the configured project/config. |
-| Personal GitHub repo | `DOPPLER_PROJECT` | Doppler project name, defaulting to `all` when omitted. |
-| Personal GitHub repo | `DOPPLER_CONFIG` | Doppler config name, defaulting to `main` when omitted. |
-| Org GitHub repo | `DOPPLER_TOKEN` | Optional for future org workflows that need runtime secrets. |
-| Org GitHub repo | `DOPPLER_PROJECT` | Optional Doppler project name. |
-| Org GitHub repo | `DOPPLER_CONFIG` | Optional Doppler config name. |
-| Org GitHub repo | npm trusted publisher | Configure npm trusted publishing for `oaslananka-lab/mcp-ssh-tool`. |
-| Org GitHub repo | `npm-production` environment | Required approval boundary for trusted publish. |
-
-Doppler should contain the operational secrets:
-
-| Doppler Secret | Used By | Purpose |
-|----------------|---------|---------|
-| `ORG_MIRROR_TOKEN` or `DOPPLER_GITHUB_SERVICE_TOKEN` | Personal `Mirror Source` workflow | Fine-scoped token that can push to `oaslananka-lab/mcp-ssh-tool`. |
-| `GITLAB_MIRROR_URL` | Personal `Mirror Source` workflow | Optional full authenticated GitLab push URL for manual mirroring. |
-| `NPM_TOKEN` | Personal emergency publish workflow | Emergency manual publish fallback only. The org trusted-publish path should remain tokenless/OIDC-based. |
-
-Prefer fine-scoped GitHub tokens over broad PATs. The org mirror token only needs contents write access to `oaslananka-lab/mcp-ssh-tool`.
-
-## Recommended Remotes
+Do not run this automatically from an agent. A maintainer should run it once after reviewing the org sync path:
 
 ```bash
-git remote add origin git@github.com:oaslananka/mcp-ssh-tool.git
-git remote add org git@github.com:oaslananka-lab/mcp-ssh-tool.git
+gh api \
+  --method PUT \
+  repos/oaslananka/mcp-ssh-tool/actions/permissions \
+  -f enabled=false
 ```
 
-For a release candidate, push source to personal first, then mirror to the org CI/CD repository:
+## Required GitHub Secrets
+
+GitHub stores only one project secret:
+
+| Repository | Secret | Purpose |
+|------------|--------|---------|
+| `oaslananka-lab/mcp-ssh-tool` | `DOPPLER_TOKEN` | Bootstrap Doppler for workflow-only runtime secrets. |
+
+GitHub-provided `GITHUB_TOKEN` is used for same-repository checkout, release creation, SARIF upload, and branch sync. Do not add `NPM_TOKEN`, `CODECOV_TOKEN`, `SAFETY_API_KEY`, or service account tokens directly to GitHub secrets.
+
+## Doppler Secrets
+
+Doppler must contain the inventory tracked in `.doppler/secrets.txt`:
+
+| Secret | Used by |
+|--------|---------|
+| `CODECOV_TOKEN` | Coverage upload from the org CI workflow. |
+| `DOPPLER_GITHUB_SERVICE_TOKEN` | Release-back mirroring from the org release to canonical GitHub. |
+| `NPM_TOKEN` | Emergency token publish fallback only. |
+| `SAFETY_API_KEY` | Safety service integration and secret-injection validation. |
+
+Use `bash scripts/verify-doppler-secrets.sh` or `powershell -ExecutionPolicy Bypass -File scripts/verify-doppler-secrets.ps1` to verify the inventory.
+
+## Workflows
+
+| Workflow | Purpose |
+|----------|---------|
+| `meta.yml` | Fast workflow guard, actionlint/zizmor, and metadata checks. |
+| `ci.yml` | Format, lint, typecheck, audit, license, unit coverage, integration, build, SBOM, and pack checks. |
+| `security.yml` | CodeQL, dependency review, Scorecard, Gitleaks, Hadolint, Trivy, Zizmor, OSV, and Doppler Safety token validation. |
+| `sync-from-canonical.yml` | Manual org pull from `oaslananka/mcp-ssh-tool`. |
+| `trusted-publish.yml` | Primary human-triggered release path using npm trusted publishing and MCP Registry OIDC. |
+| `publish.yml` | Org-only emergency token publish fallback using `NPM_TOKEN` from Doppler. |
+| `branch-hygiene.yml` | Monthly stale branch report. |
+
+Required-check workflows include `merge_group` so merge queue checks run on the exact commit group that will merge.
+
+## Release Boundary
+
+The primary publish path is `trusted-publish.yml` in `oaslananka-lab/mcp-ssh-tool`. It verifies quality, builds the package, generates a CycloneDX SBOM, attests artifacts, publishes to npm with trusted publishing, publishes MCP Registry metadata, creates the org GitHub Release, and mirrors release metadata/assets back to canonical GitHub.
+
+The final human trigger is:
 
 ```bash
-git push origin main --tags
-git push org main --tags
+gh workflow run trusted-publish.yml \
+  --repo oaslananka-lab/mcp-ssh-tool \
+  --field version=v2.1.0 \
+  --field approval=APPROVE_RELEASE
 ```
 
-The manual `Mirror Source` GitHub workflow can perform the second push when local credentials should not be used.
-
-## Azure DevOps
-
-Azure pipelines are manual-only by design:
-
-- `.azure/pipelines/ci.yml`: manual validation parity with the org GitHub CI.
-- `.azure/pipelines/publish.yml`: manual pre-publish validation and artifact handoff.
-- `.azure/pipelines/mirror.yml`: manual release record creation.
-
-Azure should not be configured with branch or PR triggers for this project. If Azure is used before publishing, paste the Azure validation run URL into the org `Publish with npm Provenance` workflow.
-
-## GitLab
-
-`.gitlab-ci.yml` is web-trigger only. It is intended for manual portability checks or backup validation, not automatic CI/CD ownership.
-
-## Release Flow
-
-1. Develop and review in `https://github.com/oaslananka/mcp-ssh-tool`.
-2. Mirror source to `https://github.com/oaslananka-lab/mcp-ssh-tool`.
-3. Let org CI/security checks pass.
-4. Optionally run Azure manual validation for an additional release-control record.
-5. Publish from the org `Publish with npm Provenance` workflow.
-6. Use the personal emergency publish workflow only if the org trusted-publish path is unavailable and the risk is accepted.
+Agents must not push tags, rotate secrets, merge protected branches, disable Actions, or trigger the final publish workflow.

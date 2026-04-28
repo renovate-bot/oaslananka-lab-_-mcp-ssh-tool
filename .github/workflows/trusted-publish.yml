@@ -1,33 +1,41 @@
-name: Publish with npm Provenance
+name: Trusted Publish
 
 on:
   workflow_dispatch:
     inputs:
-      azure_run_url:
-        description: "Azure publish validation run URL"
+      version:
+        description: "Release version, for example v2.1.0"
         required: true
-      confirm:
-        description: "Type PUBLISH to publish the package"
+      approval:
+        description: "Type APPROVE_RELEASE to publish"
         required: true
 
 permissions:
-  contents: read
+  attestations: write
+  artifact-metadata: write
+  contents: write
   id-token: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DOPPLER_PROJECT: all
+  DOPPLER_CONFIG: main
 
 concurrency:
-  group: npm-publish-${{ github.ref }}
+  group: trusted-publish-${{ inputs.version }}
   cancel-in-progress: false
 
 jobs:
   publish:
-    if: ${{ github.repository_owner == 'oaslananka-lab' && inputs.confirm == 'PUBLISH' }}
+    name: npm, MCP Registry, and GitHub Releases
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && inputs.approval == 'APPROVE_RELEASE' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: npm-production
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -39,25 +47,85 @@ jobs:
       - name: Use pinned npm
         run: node scripts/use-ci-npm.mjs
 
-      - name: Record Azure validation URL
-        run: |
-          echo "Azure validation: ${{ inputs.azure_run_url }}"
+      - name: Install Doppler CLI
+        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
 
-      - name: Fetch publish secrets from Doppler
-        id: doppler
-        uses: dopplerhq/secrets-fetch-action@v2.0.0
-        with:
-          doppler-token: ${{ secrets.DOPPLER_TOKEN }}
-          doppler-project: ${{ secrets.DOPPLER_PROJECT || 'all' }}
-          doppler-config: ${{ secrets.DOPPLER_CONFIG || 'main' }}
+      - name: Validate Doppler inventory
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: bash scripts/verify-doppler-secrets.sh
 
       - name: Install
         run: npm ci
 
-      - name: Verify package
+      - name: Validate requested version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          PKG_VER="$(node -p "require('./package.json').version")"
+          if [ "$RELEASE_VERSION" != "v${PKG_VER}" ]; then
+            echo "Requested version $RELEASE_VERSION does not match package.json v${PKG_VER}."
+            exit 1
+          fi
+
+      - name: Verify release quality
         run: npm run check
 
-      - name: Publish
-        run: npm publish --access public --provenance
+      - name: Generate SBOM and package
+        id: pack
+        run: |
+          mkdir -p artifacts
+          npm sbom --sbom-format=cyclonedx > artifacts/sbom.cdx.json
+          PACKAGE_FILE=$(npm pack --pack-destination artifacts --json | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d)[0].filename));")
+          sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
+          echo "package_file=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Attest package artifact
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/${{ steps.pack.outputs.package_file }}
+
+      - name: Attest SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/${{ steps.pack.outputs.package_file }}
+          sbom-path: artifacts/sbom.cdx.json
+
+      - name: Publish to npm with trusted publishing
         env:
-          NODE_AUTH_TOKEN: ${{ steps.doppler.outputs.NPM_TOKEN }}
+          PACKAGE_FILE: ${{ steps.pack.outputs.package_file }}
+        run: npm publish "artifacts/${PACKAGE_FILE}" --access public
+
+      - name: Publish MCP Registry metadata
+        run: |
+          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
+          ./mcp-publisher login github-oidc
+          ./mcp-publisher publish
+
+      - name: Create organization GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "$RELEASE_VERSION" \
+            artifacts/* \
+            --repo oaslananka-lab/mcp-ssh-tool \
+            --target "$GITHUB_SHA" \
+            --title "mcp-ssh-tool $RELEASE_VERSION" \
+            --generate-notes
+
+      - name: Mirror release metadata and assets to canonical repository
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          doppler run -- bash -lc '
+            set -euo pipefail
+            export GH_TOKEN="$DOPPLER_GITHUB_SERVICE_TOKEN"
+            gh release create "$RELEASE_VERSION" \
+              artifacts/* \
+              --repo oaslananka/mcp-ssh-tool \
+              --target "$GITHUB_SHA" \
+              --title "mcp-ssh-tool $RELEASE_VERSION" \
+              --generate-notes
+          '

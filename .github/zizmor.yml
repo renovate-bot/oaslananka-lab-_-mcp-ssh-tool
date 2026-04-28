@@ -1,0 +1,5 @@
+rules:
+  # The release hardening policy intentionally uses action major pins, with
+  # github/codeql-action@v4 and actions/attest@v4 selected from current docs.
+  unpinned-uses:
+    disable: true

@@ -2,7 +2,7 @@
 
 - **Entrypoint:** `dist/index.js`
 - **Transport:** stdio
-- **Runtime:** node (>=18)
+- **Runtime:** node (`22.22.2+` or `24.14.1+`)
 - **Platforms:** linux, macos, windows
 - **Command:** `mcp-ssh-tool`
 
@@ -26,3 +26,5 @@ Build before use if installing from source:
 npm install
 npm run build
 ```
+
+Registry publication is handled by the org `trusted-publish.yml` workflow after npm publication so the official MCP Registry version stays aligned with npm.

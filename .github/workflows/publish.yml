@@ -1,76 +1,76 @@
-# ──────────────────────────────────────────────────────────────────────────────
-# mcp-ssh-tool — Emergency Manual Publish (GitHub)
-#
-# PRIMARY source is the personal GitHub repository.
-# Automatic CI/CD and trusted npm publishing run in the oaslananka-lab org mirror.
-# This workflow exists as a personal-repo manual fallback ONLY.
-#
-# When to use:
-#   - Azure Pipelines is temporarily unavailable
-#   - Hotfix needed and Azure access is blocked
-#
-# How to trigger:
-#   GitHub → Actions tab → "Publish (Manual)" → "Run workflow" → type YES
-# ──────────────────────────────────────────────────────────────────────────────
-name: Publish (Manual — Emergency GitHub Fallback)
+name: Publish Emergency Fallback
 
-# Manual trigger only.
-# Use this workflow only from github.com/oaslananka/mcp-ssh-tool.
 on:
   workflow_dispatch:
     inputs:
-      version_check:
-        description: "Confirm version in package.json is correct (type YES)"
+      version:
+        description: "Release version, for example v2.1.0"
         required: true
-        default: ""
+      approval:
+        description: "Type APPROVE_FALLBACK_PUBLISH to use token publish"
+        required: true
 
-concurrency:
-  group: publish-manual-${{ github.ref }}
-  cancel-in-progress: false
+permissions:
+  contents: write
+  id-token: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DOPPLER_PROJECT: all
+  DOPPLER_CONFIG: main
+
+concurrency:
+  group: emergency-publish-${{ inputs.version }}
+  cancel-in-progress: false
 
 jobs:
   publish:
+    name: Emergency Token Publish
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && inputs.approval == 'APPROVE_FALLBACK_PUBLISH' }}
     runs-on: ubuntu-latest
-    if: ${{ github.repository_owner == 'oaslananka' && github.event.inputs.version_check == 'YES' }}
-    permissions:
-      contents: write
-      id-token: write
-
+    timeout-minutes: 30
+    environment: npm-production
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 24.14.1
           cache: npm
           cache-dependency-path: package-lock.json
-          registry-url: "https://registry.npmjs.org"
+          registry-url: https://registry.npmjs.org
 
       - name: Use pinned npm
         run: node scripts/use-ci-npm.mjs
 
-      - name: Fetch publish secrets from Doppler
-        id: doppler
-        uses: dopplerhq/secrets-fetch-action@v2.0.0
-        with:
-          doppler-token: ${{ secrets.DOPPLER_TOKEN }}
-          doppler-project: ${{ secrets.DOPPLER_PROJECT || 'all' }}
-          doppler-config: ${{ secrets.DOPPLER_CONFIG || 'main' }}
+      - name: Install Doppler CLI
+        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
+
+      - name: Validate Doppler inventory
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: bash scripts/verify-doppler-secrets.sh
 
       - name: Install
         run: npm ci
 
-      - name: Guard - version must not already exist on npm
+      - name: Validate requested version
+        env:
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          PKG_VER="$(node -p "require('./package.json').version")"
+          if [ "$RELEASE_VERSION" != "v${PKG_VER}" ]; then
+            echo "Requested version $RELEASE_VERSION does not match package.json v${PKG_VER}."
+            exit 1
+          fi
+
+      - name: Guard version is unpublished
         run: |
           PKG_NAME="$(node -p "require('./package.json').name")"
           PKG_VER="$(node -p "require('./package.json').version")"
-          echo "Checking ${PKG_NAME}@${PKG_VER} on npm..."
-          if npm view "${PKG_NAME}@${PKG_VER}" version --silent > /dev/null 2>&1; then
+          if npm view "${PKG_NAME}@${PKG_VER}" version --silent >/dev/null 2>&1; then
             echo "ERROR: ${PKG_NAME}@${PKG_VER} already exists on npm."
             exit 1
           fi
@@ -78,12 +78,18 @@ jobs:
       - name: Verify release quality
         run: npm run check
 
-      - name: Publish to npm
-        run: npm publish --access public --provenance
+      - name: Publish to npm using Doppler-injected token
         env:
-          NODE_AUTH_TOKEN: ${{ steps.doppler.outputs.NPM_TOKEN }}
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: doppler run -- bash -lc 'NODE_AUTH_TOKEN="$NPM_TOKEN" npm publish --access public --provenance'
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          generate_release_notes: true
+      - name: Create organization GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_VERSION: ${{ inputs.version }}
+        run: |
+          gh release create "$RELEASE_VERSION" \
+            --repo oaslananka-lab/mcp-ssh-tool \
+            --target "$GITHUB_SHA" \
+            --title "mcp-ssh-tool $RELEASE_VERSION" \
+            --generate-notes

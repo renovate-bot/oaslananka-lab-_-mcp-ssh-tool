@@ -2,26 +2,41 @@ name: Security
 
 on:
   pull_request:
+    branches:
+      - main
   push:
-    branches: [main]
+    branches:
+      - main
+  merge_group:
+    types:
+      - checks_requested
   schedule:
     - cron: "17 4 * * 1"
   workflow_dispatch:
 
 permissions:
   contents: read
-  security-events: write
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DOPPLER_PROJECT: all
+  DOPPLER_CONFIG: main
+  HAS_DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN != '' }}
 
 jobs:
   codeql:
     name: CodeQL
-    if: ${{ github.repository_owner == 'oaslananka-lab' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: github/codeql-action/init@v4
         with:
           languages: javascript-typescript
@@ -29,13 +44,148 @@ jobs:
 
   dependency-review:
     name: Dependency Review
-    if: ${{ github.event_name == 'pull_request' && github.repository_owner == 'oaslananka-lab' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && github.event_name == 'pull_request' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     permissions:
       contents: read
       pull-requests: read
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/dependency-review-action@v4
         with:
           fail-on-severity: moderate
+
+  scorecard:
+    name: OpenSSF Scorecard
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      id-token: write
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@v2.4.0
+        with:
+          results_file: scorecard.sarif
+          results_format: sarif
+          publish_results: true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: scorecard-sarif
+          path: scorecard.sarif
+          if-no-files-found: ignore
+
+  gitleaks:
+    name: Gitleaks
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+
+  hadolint:
+    name: Hadolint
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+      - uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile.test
+
+  trivy:
+    name: Trivy
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: aquasecurity/trivy-action@0.35.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: sarif
+          output: trivy-results.sarif
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+      - uses: github/codeql-action/upload-sarif@v4
+        if: always()
+        with:
+          sarif_file: trivy-results.sarif
+
+  zizmor:
+    name: Zizmor
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install zizmor
+        run: python3 -m pip install --user zizmor
+      - name: Lint workflows
+        run: '"$HOME/.local/bin/zizmor" .github/workflows'
+
+  osv:
+    name: OSV Scanner
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    permissions:
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@v2.2.3
+    with:
+      scan-args: |-
+        --recursive
+        .
+
+  doppler-safety:
+    name: Doppler Safety Secret Check
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Skip when Doppler bootstrap token is unavailable
+        if: env.HAS_DOPPLER_TOKEN != 'true'
+        run: echo "DOPPLER_TOKEN is unavailable for this event; skipping live Doppler check."
+      - name: Install Doppler CLI
+        if: env.HAS_DOPPLER_TOKEN == 'true'
+        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
+      - name: Validate Doppler inventory
+        if: env.HAS_DOPPLER_TOKEN == 'true'
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: bash scripts/verify-doppler-secrets.sh
+      - name: Verify Safety token is injected through Doppler
+        if: env.HAS_DOPPLER_TOKEN == 'true'
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: doppler run -- bash -lc 'test -n "${SAFETY_API_KEY:-}" && echo "SAFETY_API_KEY injected through Doppler."'

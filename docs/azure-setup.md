@@ -1,13 +1,13 @@
 # Azure DevOps Setup Guide
 
-Azure DevOps is a manual validation and release-control backup for `mcp-ssh-tool`. Automatic CI/CD ownership lives in the GitHub organization mirror at `https://github.com/oaslananka-lab/mcp-ssh-tool`.
+Azure DevOps is a manual validation and release-control backup for `mcp-ssh-tool`. Automatic CI/CD ownership lives in the GitHub organization repository at `https://github.com/oaslananka-lab/mcp-ssh-tool`.
 
 ## Pipeline Policy
 
 - Do not enable branch triggers.
 - Do not enable pull-request triggers.
 - Use Azure manually for extra validation, artifact generation, and release approval evidence.
-- Use the org GitHub `Publish with npm Provenance` workflow for npm trusted publishing after Azure validation when needed.
+- Use the org GitHub `Trusted Publish` workflow for npm trusted publishing after Azure validation when needed.
 
 ## Pipelines
 
@@ -47,7 +47,7 @@ Used by `.azure/pipelines/mirror.yml` when manually creating release records.
 1. Run `.azure/pipelines/publish.yml` manually.
 2. Confirm lint, tests, build, version sync, package contents, SBOM, and package hash complete successfully.
 3. Copy the Azure run URL.
-4. Start the org GitHub workflow `Publish with npm Provenance`.
-5. Paste the Azure run URL and type `PUBLISH`.
+4. Start the org GitHub workflow `Trusted Publish`.
+5. Enter the release version and type `APPROVE_RELEASE`.
 
 The org GitHub trusted-publish workflow is intentionally owner-gated and will only publish from `oaslananka-lab`.

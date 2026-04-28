@@ -1,8 +1,41 @@
 # Troubleshooting
 
+## CI/CD And Release
+
+### `corepack enable` fails with `EPERM` on Windows
+
+`corepack enable` writes shims under the Node.js installation directory. If it fails without elevation, continue with:
+
+```powershell
+node scripts/use-ci-npm.mjs
+npm ci
+```
+
+### Trusted publish fails with a provenance repository mismatch
+
+Check that `package.json.repository.url` is exactly:
+
+```text
+git+https://github.com/oaslananka-lab/mcp-ssh-tool.git
+```
+
+npm provenance validates the package metadata repository against the GitHub Actions repository that publishes the artifact.
+
+### MCP Registry still shows an old version
+
+The registry is updated by `trusted-publish.yml` after npm publication. Verify the workflow ran `mcp-publisher login github-oidc` and `mcp-publisher publish`, then check:
+
+```bash
+curl https://registry.modelcontextprotocol.io/v0.1/servers/io.github.oaslananka%2Fmcp-ssh-tool/versions/latest
+```
+
+### Doppler verification fails in CI
+
+GitHub should contain only `DOPPLER_TOKEN`. Required runtime secrets are listed in `.doppler/secrets.txt` and must exist in Doppler under the configured project/config.
+
 ## The MCP Server Does Not Appear
 
-1. Confirm Node.js is `>=22.14.0`.
+1. Confirm Node.js is `22.22.2+` or `24.14.1+`.
 2. Confirm the command works: `mcp-ssh-tool --version`.
 3. Use stdio config for local clients:
 
