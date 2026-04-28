@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - main
-      - develop
+      - "chore/**"
       - "feature/**"
       - "fix/**"
   pull_request:
     branches:
       - main
-      - develop
+  merge_group:
+    types:
+      - checks_requested
   workflow_dispatch:
 
 permissions:
@@ -18,18 +20,24 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DOPPLER_PROJECT: all
+  DOPPLER_CONFIG: main
+  HAS_DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN != '' }}
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   quality:
     name: Quality Gates
-    if: ${{ github.repository_owner == 'oaslananka-lab' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -48,8 +56,9 @@ jobs:
 
   unit:
     name: Unit Tests (Node ${{ matrix.node }})
-    if: ${{ github.repository_owner == 'oaslananka-lab' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
@@ -58,6 +67,8 @@ jobs:
           - 24.14.1
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -74,6 +85,14 @@ jobs:
       - name: Unit coverage
         run: npm run test:coverage
 
+      - name: Upload JUnit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-node-${{ matrix.node }}
+          path: test-results/**/*.xml
+          if-no-files-found: warn
+
       - name: Upload coverage artifact
         if: always() && matrix.node == '24.14.1'
         uses: actions/upload-artifact@v4
@@ -82,12 +101,25 @@ jobs:
           path: coverage
           if-no-files-found: ignore
 
+      - name: Install Doppler CLI
+        if: matrix.node == '24.14.1' && env.HAS_DOPPLER_TOKEN == 'true'
+        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
+
+      - name: Upload coverage to Codecov
+        if: matrix.node == '24.14.1' && env.HAS_DOPPLER_TOKEN == 'true'
+        env:
+          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
+        run: doppler run -- npx --yes codecov --file coverage/lcov.info --disable-search
+
   integration:
     name: SSH Integration
-    if: ${{ github.repository_owner == 'oaslananka-lab' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -117,16 +149,27 @@ jobs:
         if: always()
         run: docker compose down --remove-orphans
 
+      - name: Upload integration JUnit results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: junit-integration
+          path: test-results/**/*.xml
+          if-no-files-found: warn
+
   package:
     name: Build, SBOM, and Pack
-    if: ${{ github.repository_owner == 'oaslananka-lab' || github.event_name == 'workflow_dispatch' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     needs:
       - quality
       - unit
       - integration
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
 
       - uses: actions/setup-node@v4
         with:
@@ -143,10 +186,10 @@ jobs:
       - name: Package parity
         run: npm run check:package
 
-      - name: Generate SBOM and package hash
+      - name: Generate CycloneDX SBOM and package hash
         run: |
           mkdir -p artifacts
-          npm sbom --sbom-format=spdx > artifacts/sbom.spdx.json
+          npm sbom --sbom-format=cyclonedx > artifacts/sbom.cdx.json
           PACKAGE_FILE=$(npm pack --pack-destination artifacts --json | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d)[0].filename));")
           sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
 
