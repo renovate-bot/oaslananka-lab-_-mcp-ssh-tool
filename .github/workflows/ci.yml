@@ -35,11 +35,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24.14.1
           cache: npm
@@ -66,11 +66,11 @@ jobs:
           - 22.22.2
           - 24.14.1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -87,7 +87,7 @@ jobs:
 
       - name: Upload JUnit results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: junit-node-${{ matrix.node }}
           path: test-results/**/*.xml
@@ -95,7 +95,7 @@ jobs:
 
       - name: Upload coverage artifact
         if: always() && matrix.node == '24.14.1'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage
           path: coverage
@@ -131,11 +131,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24.14.1
           cache: npm
@@ -165,7 +165,7 @@ jobs:
 
       - name: Upload integration JUnit results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: junit-integration
           path: test-results/**/*.xml
@@ -181,11 +181,11 @@ jobs:
       - unit
       - integration
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24.14.1
           cache: npm
@@ -208,7 +208,7 @@ jobs:
           sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
 
       - name: Upload release verification artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-verification
           path: artifacts
