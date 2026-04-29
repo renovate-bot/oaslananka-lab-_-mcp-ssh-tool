@@ -103,6 +103,23 @@ jobs:
           subject-path: artifacts/${{ steps.pack.outputs.package_file }}
           sbom-path: artifacts/sbom.cdx.json
 
+      - name: Check MCP Registry publication state
+        id: registry_status
+        run: |
+          SERVER_NAME="$(node -p "require('./server.json').name")"
+          PKG_VER="$(node -p "require('./package.json').version")"
+          SERVER_ID="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$SERVER_NAME")"
+          LATEST_VER="$(
+            curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers/${SERVER_ID}/versions/latest" \
+              | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d).server?.version ?? ''));"
+          )" || LATEST_VER=""
+          if [ "$LATEST_VER" = "$PKG_VER" ]; then
+            echo "${SERVER_NAME}@${PKG_VER} already exists in the MCP Registry."
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Publish to npm using Doppler-injected token
         if: ${{ steps.npm_status.outputs.already_published != 'true' }}
         env:
@@ -115,11 +132,12 @@ jobs:
           BASH
 
       - name: Publish MCP Registry metadata
+        if: ${{ steps.registry_status.outputs.already_published != 'true' }}
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
           curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
-          doppler run -- bash -c './mcp-publisher login github -token "$DOPPLER_GITHUB_SERVICE_TOKEN"'
+          doppler run -- bash -c "./mcp-publisher login github -token \"\$DOPPLER_GITHUB_SERVICE_TOKEN\""
           ./mcp-publisher publish
 
       - name: Create organization GitHub Release
@@ -127,18 +145,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
-          gh release create "$RELEASE_VERSION" \
-            artifacts/* \
-            --repo oaslananka-lab/mcp-ssh-tool \
-            --target "$GITHUB_SHA" \
-            --title "mcp-ssh-tool $RELEASE_VERSION" \
-            --generate-notes
+          if gh release view "$RELEASE_VERSION" --repo oaslananka-lab/mcp-ssh-tool >/dev/null 2>&1; then
+            gh release upload "$RELEASE_VERSION" artifacts/* --repo oaslananka-lab/mcp-ssh-tool --clobber
+          else
+            gh release create "$RELEASE_VERSION" \
+              artifacts/* \
+              --repo oaslananka-lab/mcp-ssh-tool \
+              --target "$GITHUB_SHA" \
+              --title "mcp-ssh-tool $RELEASE_VERSION" \
+              --generate-notes
+          fi
 
       - name: Mirror release metadata and assets to canonical repository
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
+          if curl -fsSI "https://github.com/oaslananka/mcp-ssh-tool/releases/tag/${RELEASE_VERSION}" >/dev/null; then
+            echo "Canonical release ${RELEASE_VERSION} already exists; skipping mirror."
+            exit 0
+          fi
           doppler run -- bash <<'BASH'
           set -euo pipefail
           export GH_TOKEN="$DOPPLER_GITHUB_SERVICE_TOKEN"
