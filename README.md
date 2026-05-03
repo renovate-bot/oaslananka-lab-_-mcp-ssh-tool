@@ -78,6 +78,7 @@ Non-loopback HTTP startup is refused unless both `--bearer-token-file` and allow
 | Raw `proc_sudo` | denied unless `allowRawSudo=true` |
 | Destructive commands | denied unless `allowDestructiveCommands=true` |
 | Destructive fs operations | allowed only under policy prefixes, denied elsewhere |
+| Local transfer paths | `file_upload` and `file_download` limited to OS temp unless policy allows more |
 | HTTP bind | `127.0.0.1` |
 | Legacy SSE | disabled |
 | File reads | size-limited by `SSH_MCP_MAX_FILE_SIZE` |
@@ -99,11 +100,13 @@ Set `SSH_MCP_POLICY_FILE=/etc/mcp-ssh-tool/policy.json`:
   "commandAllow": ["^(uname|df|uptime|systemctl status)\\b"],
   "commandDeny": ["rm\\s+-rf\\s+/", "shutdown", "reboot"],
   "pathAllowPrefixes": ["/tmp", "/var/tmp", "/home/deploy"],
-  "pathDenyPrefixes": ["/etc/shadow", "/etc/sudoers", "/boot", "/dev", "/proc"]
+  "pathDenyPrefixes": ["/etc/shadow", "/etc/sudoers", "/boot", "/dev", "/proc"],
+  "localPathAllowPrefixes": ["/var/tmp/mcp-ssh-tool"],
+  "localPathDenyPrefixes": []
 }
 ```
 
-Simple deploys can use environment overrides such as `SSH_MCP_ALLOW_RAW_SUDO=true`, `SSH_MCP_ALLOWED_HOSTS=prod-1.example.com`, or `SSH_MCP_PATH_ALLOW_PREFIXES=/tmp,/home/deploy`.
+Simple deploys can use environment overrides such as `SSH_MCP_ALLOW_RAW_SUDO=true`, `SSH_MCP_ALLOWED_HOSTS=prod-1.example.com`, `SSH_MCP_PATH_ALLOW_PREFIXES=/tmp,/home/deploy`, or `SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES=/var/tmp/mcp-ssh-tool`.
 
 ## Core Tools
 
@@ -193,6 +196,7 @@ High-value environment variables:
 | `SSH_MCP_COMMAND_TIMEOUT` | `30000` | Default command timeout. |
 | `SSH_MCP_HTTP_HOST` | `127.0.0.1` | Streamable HTTP bind host. |
 | `SSH_MCP_HTTP_PORT` / `PORT` | `3000` | Streamable HTTP port. |
+| `SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES` | OS temp directory | Local transfer allow-list for `file_upload` and `file_download`. |
 | `SSH_MCP_HTTP_BEARER_TOKEN_FILE` | unset | Required for non-loopback HTTP. |
 | `SSH_MCP_HTTP_ALLOWED_ORIGINS` | loopback origins | Comma-separated allowed origins. |
 

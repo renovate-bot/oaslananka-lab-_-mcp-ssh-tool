@@ -51,7 +51,7 @@ gh workflow run trusted-publish.yml \
   --field approval=APPROVE_RELEASE
 ```
 
-The workflow publishes npm with trusted publishing, publishes MCP Registry metadata with GitHub OIDC, creates the org release, and mirrors release metadata/assets back to canonical GitHub.
+The workflow publishes npm with trusted publishing, publishes MCP Registry metadata with the Doppler-injected canonical GitHub service token required for the `io.github.oaslananka/mcp-ssh-tool` namespace, creates the org release, and mirrors release metadata/assets back to canonical GitHub.
 
 ## Post-Publish Verification
 

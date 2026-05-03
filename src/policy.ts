@@ -1,3 +1,6 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { posix as posixPath } from "node:path";
 import { createPolicyError } from "./errors.js";
 import { checkCommandSafety } from "./safety.js";
 import type { PolicyMode } from "./types.js";
@@ -13,6 +16,8 @@ export interface PolicyConfig {
   commandDeny: string[];
   pathAllowPrefixes: string[];
   pathDenyPrefixes: string[];
+  localPathAllowPrefixes: string[];
+  localPathDenyPrefixes: string[];
 }
 
 export type PolicyAction =
@@ -30,6 +35,10 @@ export type PolicyAction =
   | "patch.apply"
   | "transfer.upload"
   | "transfer.download"
+  | "transfer.local.read"
+  | "transfer.local.write"
+  | "transfer.local.create"
+  | "transfer.local.overwrite"
   | "tunnel.local"
   | "tunnel.remote";
 
@@ -57,6 +66,12 @@ export interface PolicyDecision {
 export type PolicyDecisionObserver = (decision: PolicyDecision, context: PolicyContext) => void;
 
 const DEFAULT_ALLOWED_MUTATION_PREFIXES = ["/tmp", "/var/tmp", "/home", "/Users"];
+const LOCAL_TRANSFER_ACTIONS = new Set<PolicyAction>([
+  "transfer.local.read",
+  "transfer.local.write",
+  "transfer.local.create",
+  "transfer.local.overwrite",
+]);
 
 function compile(pattern: string): RegExp | undefined {
   try {
@@ -70,20 +85,62 @@ function matchesAny(value: string, patterns: string[]): boolean {
   return patterns.some((pattern) => compile(pattern)?.test(value));
 }
 
-function normalisePathPrefix(prefix: string): string {
-  if (prefix === "/") {
-    return "/";
-  }
-  return prefix.replace(/[\\/]+$/, "");
+export function isSegmentBoundaryPathMatch(
+  candidate: string,
+  prefix: string,
+  separator: string,
+): boolean {
+  return candidate === prefix || candidate.startsWith(`${prefix}${separator}`);
 }
 
-function isPathUnder(pathValue: string, prefix: string): boolean {
-  const normalizedPrefix = normalisePathPrefix(prefix);
-  if (normalizedPrefix === "/") {
+function stripTrailingSeparators(value: string, separator: string, root: string): string {
+  let stripped = value;
+  while (stripped.length > root.length && stripped.endsWith(separator)) {
+    stripped = stripped.slice(0, -separator.length);
+  }
+  return stripped;
+}
+
+export function normalizeRemotePosixPath(pathValue: string): string {
+  if (pathValue.includes("\0")) {
+    throw new Error("Path contains NUL byte");
+  }
+
+  const unixSeparators = pathValue.replace(/\\/g, "/");
+  const absolutePath = unixSeparators.startsWith("/") ? unixSeparators : `/${unixSeparators}`;
+  const normalized = posixPath.normalize(absolutePath);
+  return stripTrailingSeparators(normalized, "/", "/");
+}
+
+function normalizeLocalPolicyPath(pathValue: string): string {
+  if (pathValue.includes("\0")) {
+    throw new Error("Path contains NUL byte");
+  }
+
+  const absolutePath = path.resolve(pathValue);
+  let normalized = path.normalize(absolutePath);
+  try {
+    normalized = fs.realpathSync.native(normalized);
+  } catch {
+    // Policy prefixes may be provisioned before the directory exists. Transfer
+    // operations pass canonical paths after resolving the existing parent.
+  }
+
+  return stripTrailingSeparators(normalized, path.sep, path.parse(normalized).root);
+}
+
+function normalizePolicyPaths(
+  paths: string[] | undefined,
+  normalizer: (pathValue: string) => string,
+): string[] {
+  return [...new Set((paths ?? []).map((pathValue) => normalizer(pathValue)))];
+}
+
+function isPathUnder(pathValue: string, prefix: string, separator: string): boolean {
+  if (prefix === "/" || prefix === path.parse(prefix).root) {
     return true;
   }
-  const normalizedPath = pathValue.replace(/\\/g, "/");
-  return normalizedPath === normalizedPrefix || normalizedPath.startsWith(`${normalizedPrefix}/`);
+  return isSegmentBoundaryPathMatch(pathValue, prefix, separator);
 }
 
 function denied(decision: Omit<PolicyDecision, "allowed">): PolicyDecision {
@@ -95,10 +152,34 @@ function allowed(decision: Omit<PolicyDecision, "allowed">): PolicyDecision {
 }
 
 export class PolicyEngine {
+  private readonly pathAllowPrefixes: string[];
+  private readonly pathDenyPrefixes: string[];
+  private readonly defaultPathAllowPrefixes: string[];
+  private readonly localPathAllowPrefixes: string[];
+  private readonly localPathDenyPrefixes: string[];
+
   constructor(
     private readonly config: PolicyConfig,
     private readonly observer?: PolicyDecisionObserver,
-  ) {}
+  ) {
+    this.pathAllowPrefixes = normalizePolicyPaths(
+      config.pathAllowPrefixes,
+      normalizeRemotePosixPath,
+    );
+    this.pathDenyPrefixes = normalizePolicyPaths(config.pathDenyPrefixes, normalizeRemotePosixPath);
+    this.defaultPathAllowPrefixes = normalizePolicyPaths(
+      DEFAULT_ALLOWED_MUTATION_PREFIXES,
+      normalizeRemotePosixPath,
+    );
+    this.localPathAllowPrefixes = normalizePolicyPaths(
+      config.localPathAllowPrefixes,
+      normalizeLocalPolicyPath,
+    );
+    this.localPathDenyPrefixes = normalizePolicyPaths(
+      config.localPathDenyPrefixes,
+      normalizeLocalPolicyPath,
+    );
+  }
 
   getEffectivePolicy(): PolicyConfig {
     return {
@@ -108,6 +189,8 @@ export class PolicyEngine {
       commandDeny: [...this.config.commandDeny],
       pathAllowPrefixes: [...this.config.pathAllowPrefixes],
       pathDenyPrefixes: [...this.config.pathDenyPrefixes],
+      localPathAllowPrefixes: [...(this.config.localPathAllowPrefixes ?? [])],
+      localPathDenyPrefixes: [...(this.config.localPathDenyPrefixes ?? [])],
     };
   }
 
@@ -184,11 +267,73 @@ export class PolicyEngine {
       }
     }
 
-    const paths = [context.path, context.secondaryPath].filter((path): path is string =>
-      Boolean(path),
+    const paths = [context.path, context.secondaryPath].filter((pathValue): pathValue is string =>
+      Boolean(pathValue),
     );
+    if (LOCAL_TRANSFER_ACTIONS.has(context.action)) {
+      for (const pathValue of paths) {
+        let normalizedPath: string;
+        try {
+          normalizedPath = normalizeLocalPolicyPath(pathValue);
+        } catch {
+          return denied({
+            mode,
+            action: context.action,
+            reason: "Local path contains NUL byte",
+            hint: "Choose a valid local path without NUL bytes.",
+          });
+        }
+
+        if (
+          this.localPathDenyPrefixes.some((prefix) => isPathUnder(normalizedPath, prefix, path.sep))
+        ) {
+          return denied({
+            mode,
+            action: context.action,
+            reason: `Local path ${pathValue} is denied by policy`,
+            hint: "Choose a different local path or adjust localPathDenyPrefixes.",
+          });
+        }
+
+        if (this.localPathAllowPrefixes.length === 0) {
+          return denied({
+            mode,
+            action: context.action,
+            reason: "Local transfer path policy has no allowed prefixes",
+            hint: "Set localPathAllowPrefixes for MCP-server-host transfer paths.",
+          });
+        }
+
+        const underAllowedPrefix = this.localPathAllowPrefixes.some((prefix) =>
+          isPathUnder(normalizedPath, prefix, path.sep),
+        );
+        if (!underAllowedPrefix) {
+          return denied({
+            mode,
+            action: context.action,
+            reason: `Local path ${pathValue} is outside allowed prefixes`,
+            hint: `Allowed local transfer prefixes: ${this.localPathAllowPrefixes.join(", ")}`,
+          });
+        }
+      }
+
+      return allowed({ mode, action: context.action });
+    }
+
     for (const pathValue of paths) {
-      if (this.config.pathDenyPrefixes.some((prefix) => isPathUnder(pathValue, prefix))) {
+      let normalizedPath: string;
+      try {
+        normalizedPath = normalizeRemotePosixPath(pathValue);
+      } catch {
+        return denied({
+          mode,
+          action: context.action,
+          reason: "Path contains NUL byte",
+          hint: "Choose a valid remote path without NUL bytes.",
+        });
+      }
+
+      if (this.pathDenyPrefixes.some((prefix) => isPathUnder(normalizedPath, prefix, "/"))) {
         return denied({
           mode,
           action: context.action,
@@ -199,12 +344,12 @@ export class PolicyEngine {
 
       const isDestructiveFs = (context.destructive ?? false) || context.action === "fs.remove";
       const allowPrefixes =
-        this.config.pathAllowPrefixes.length > 0
-          ? this.config.pathAllowPrefixes
-          : DEFAULT_ALLOWED_MUTATION_PREFIXES;
+        this.pathAllowPrefixes.length > 0 ? this.pathAllowPrefixes : this.defaultPathAllowPrefixes;
 
       if (isDestructiveFs && !this.config.allowDestructiveFs) {
-        const underAllowedPrefix = allowPrefixes.some((prefix) => isPathUnder(pathValue, prefix));
+        const underAllowedPrefix = allowPrefixes.some((prefix) =>
+          isPathUnder(normalizedPath, prefix, "/"),
+        );
         if (!underAllowedPrefix) {
           return denied({
             mode,

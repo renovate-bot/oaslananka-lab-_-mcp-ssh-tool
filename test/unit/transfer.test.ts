@@ -2,8 +2,38 @@ import { afterEach, describe, expect, jest, test } from "@jest/globals";
 import fs from "fs";
 import os from "os";
 import path from "path";
+import { PolicyEngine, type PolicyConfig } from "../../src/policy.js";
 import { createTransferService, formatETA, formatSize, formatSpeed } from "../../src/transfer.js";
 import { createAllowPolicy, createSessionInfo, createTransferMetrics } from "./helpers.js";
+
+function createTransferPolicy(
+  localPathAllowPrefixes: string[],
+  overrides: Partial<PolicyConfig> = {},
+) {
+  return new PolicyEngine({
+    mode: "enforce",
+    allowRootLogin: false,
+    allowRawSudo: false,
+    allowDestructiveCommands: false,
+    allowDestructiveFs: false,
+    allowedHosts: [],
+    commandAllow: [],
+    commandDeny: [],
+    pathAllowPrefixes: ["/tmp"],
+    pathDenyPrefixes: [],
+    localPathAllowPrefixes,
+    localPathDenyPrefixes: [],
+    ...overrides,
+  });
+}
+
+function makeDirs(root: string) {
+  const allowed = path.join(root, "allowed");
+  const forbidden = path.join(root, "forbidden");
+  fs.mkdirSync(allowed, { recursive: true });
+  fs.mkdirSync(forbidden, { recursive: true });
+  return { allowed, forbidden };
+}
 
 describe("createTransferService", () => {
   let tempDir = "";
@@ -60,6 +90,128 @@ describe("createTransferService", () => {
     );
   });
 
+  test("checks local upload source policy before reading", async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-test-"));
+    const { allowed, forbidden } = makeDirs(tempDir);
+    const allowedPath = path.join(allowed, "upload.txt");
+    const forbiddenPath = path.join(forbidden, "secret.txt");
+    fs.writeFileSync(allowedPath, "allowed");
+    fs.writeFileSync(forbiddenPath, "secret");
+    const writeFile = jest.fn(
+      (
+        _remotePath: string,
+        _data: Buffer,
+        _options: object,
+        callback: (err?: Error | null) => void,
+      ) => callback(null),
+    );
+    const readFile = jest.fn(
+      (_remotePath: string, callback: (err: Error | null, data: Buffer) => void) =>
+        callback(null, Buffer.from("allowed")),
+    );
+
+    const service = createTransferService({
+      sessionManager: {
+        getSession: () =>
+          ({
+            info: createSessionInfo(),
+            sftp: { readFile, writeFile },
+          }) as any,
+      },
+      metrics: createTransferMetrics(),
+      policy: createTransferPolicy([allowed]),
+    });
+
+    await expect(
+      service.uploadFileWithProgress(allowedPath, "/tmp/upload.txt", {
+        sessionId: "session-1",
+      }),
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
+
+    writeFile.mockClear();
+    readFile.mockClear();
+    const localReadSpy = jest.spyOn(fs.promises, "readFile");
+    try {
+      await expect(
+        service.uploadFileWithProgress(forbiddenPath, "/tmp/upload.txt", {
+          sessionId: "session-1",
+        }),
+      ).rejects.toThrow("outside allowed prefixes");
+      expect(localReadSpy).not.toHaveBeenCalled();
+      expect(writeFile).not.toHaveBeenCalled();
+      expect(readFile).not.toHaveBeenCalled();
+    } finally {
+      localReadSpy.mockRestore();
+    }
+  });
+
+  test("normalizes local upload paths and rejects NUL, prefix confusion, and symlink escapes", async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-test-"));
+    const { allowed, forbidden } = makeDirs(tempDir);
+    const allowedPath = path.join(allowed, "upload.txt");
+    const prefixConfusionPath = path.join(tempDir, "allowed2", "upload.txt");
+    const forbiddenPath = path.join(forbidden, "secret.txt");
+    fs.mkdirSync(path.dirname(prefixConfusionPath), { recursive: true });
+    fs.writeFileSync(allowedPath, "allowed");
+    fs.writeFileSync(prefixConfusionPath, "confused");
+    fs.writeFileSync(forbiddenPath, "secret");
+    const writeFile = jest.fn(
+      (
+        _remotePath: string,
+        _data: Buffer,
+        _options: object,
+        callback: (err?: Error | null) => void,
+      ) => callback(null),
+    );
+    const readFile = jest.fn(
+      (_remotePath: string, callback: (err: Error | null, data: Buffer) => void) =>
+        callback(null, Buffer.from("allowed")),
+    );
+    const service = createTransferService({
+      sessionManager: {
+        getSession: () =>
+          ({
+            info: createSessionInfo(),
+            sftp: { readFile, writeFile },
+          }) as any,
+      },
+      metrics: createTransferMetrics(),
+      policy: createTransferPolicy([allowed]),
+    });
+
+    const redundantPath = `${allowed}${path.sep}.${path.sep}${path.basename(allowedPath)}`;
+    await expect(
+      service.uploadFileWithProgress(redundantPath, "/tmp/upload.txt", {
+        sessionId: "session-1",
+      }),
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
+
+    await expect(
+      service.uploadFileWithProgress(`${allowed}${path.sep}bad\0name`, "/tmp/upload.txt", {
+        sessionId: "session-1",
+      }),
+    ).rejects.toThrow("NUL");
+
+    await expect(
+      service.uploadFileWithProgress(prefixConfusionPath, "/tmp/upload.txt", {
+        sessionId: "session-1",
+      }),
+    ).rejects.toThrow("outside allowed prefixes");
+
+    const symlinkPath = path.join(allowed, "link-to-secret");
+    try {
+      fs.symlinkSync(forbiddenPath, symlinkPath);
+    } catch {
+      return;
+    }
+
+    await expect(
+      service.uploadFileWithProgress(symlinkPath, "/tmp/upload.txt", {
+        sessionId: "session-1",
+      }),
+    ).rejects.toThrow("outside allowed prefixes");
+  });
+
   test("downloads files with progress", async () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-test-"));
     const localPath = path.join(tempDir, "download.txt");
@@ -95,6 +247,116 @@ describe("createTransferService", () => {
     expect(result.verified).toBe(true);
     expect(fs.readFileSync(localPath, "utf8")).toBe("hello");
     expect(onProgress).toHaveBeenCalled();
+  });
+
+  test("checks local download destination policy before writing", async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-test-"));
+    const { allowed, forbidden } = makeDirs(tempDir);
+    const allowedPath = path.join(allowed, "download.txt");
+    const forbiddenPath = path.join(forbidden, "download.txt");
+    const stat = jest.fn(
+      (_remotePath: string, callback: (err: Error | null, stats: { size: number }) => void) =>
+        callback(null, { size: 5 }),
+    );
+    const readFile = jest.fn(
+      (_remotePath: string, callback: (err: Error | null, data: Buffer) => void) =>
+        callback(null, Buffer.from("hello")),
+    );
+    const service = createTransferService({
+      sessionManager: {
+        getSession: () =>
+          ({
+            info: createSessionInfo(),
+            sftp: { stat, readFile },
+          }) as any,
+      },
+      metrics: createTransferMetrics(),
+      policy: createTransferPolicy([allowed]),
+    });
+
+    await expect(
+      service.downloadFileWithProgress("/tmp/remote.txt", allowedPath, {
+        sessionId: "session-1",
+      }),
+    ).resolves.toEqual(expect.objectContaining({ success: true }));
+    expect(fs.readFileSync(allowedPath, "utf8")).toBe("hello");
+
+    stat.mockClear();
+    readFile.mockClear();
+    const localWriteSpy = jest.spyOn(fs.promises, "writeFile");
+    try {
+      await expect(
+        service.downloadFileWithProgress("/tmp/remote.txt", forbiddenPath, {
+          sessionId: "session-1",
+        }),
+      ).rejects.toThrow("outside allowed prefixes");
+      expect(localWriteSpy).not.toHaveBeenCalled();
+      expect(stat).not.toHaveBeenCalled();
+      expect(readFile).not.toHaveBeenCalled();
+    } finally {
+      localWriteSpy.mockRestore();
+    }
+  });
+
+  test("rejects local download traversal, prefix confusion, NUL, and symlink destination escapes", async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-test-"));
+    const { allowed, forbidden } = makeDirs(tempDir);
+    const prefixConfusionDir = path.join(tempDir, "allowed2");
+    fs.mkdirSync(prefixConfusionDir, { recursive: true });
+    const stat = jest.fn(
+      (_remotePath: string, callback: (err: Error | null, stats: { size: number }) => void) =>
+        callback(null, { size: 5 }),
+    );
+    const readFile = jest.fn(
+      (_remotePath: string, callback: (err: Error | null, data: Buffer) => void) =>
+        callback(null, Buffer.from("hello")),
+    );
+    const service = createTransferService({
+      sessionManager: {
+        getSession: () =>
+          ({
+            info: createSessionInfo(),
+            sftp: { stat, readFile },
+          }) as any,
+      },
+      metrics: createTransferMetrics(),
+      policy: createTransferPolicy([allowed]),
+    });
+
+    await expect(
+      service.downloadFileWithProgress(
+        "/tmp/remote.txt",
+        `${allowed}${path.sep}..${path.sep}forbidden${path.sep}escape.txt`,
+        { sessionId: "session-1" },
+      ),
+    ).rejects.toThrow("outside allowed prefixes");
+
+    await expect(
+      service.downloadFileWithProgress("/tmp/remote.txt", path.join(prefixConfusionDir, "x.txt"), {
+        sessionId: "session-1",
+      }),
+    ).rejects.toThrow("outside allowed prefixes");
+
+    await expect(
+      service.downloadFileWithProgress("/tmp/remote.txt", `${allowed}${path.sep}bad\0name`, {
+        sessionId: "session-1",
+      }),
+    ).rejects.toThrow("NUL");
+
+    const forbiddenTarget = path.join(forbidden, "target.txt");
+    const symlinkPath = path.join(allowed, "link-to-target");
+    fs.writeFileSync(forbiddenTarget, "secret");
+    try {
+      fs.symlinkSync(forbiddenTarget, symlinkPath);
+    } catch {
+      return;
+    }
+
+    await expect(
+      service.downloadFileWithProgress("/tmp/remote.txt", symlinkPath, {
+        sessionId: "session-1",
+      }),
+    ).rejects.toThrow("outside allowed prefixes");
   });
 
   test("rejects missing SFTP sessions", async () => {

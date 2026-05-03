@@ -35,11 +35,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24.14.1
           cache: npm
@@ -66,11 +66,11 @@ jobs:
           - 22.22.2
           - 24.14.1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -87,7 +87,7 @@ jobs:
 
       - name: Upload JUnit results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: junit-node-${{ matrix.node }}
           path: test-results/**/*.xml
@@ -95,7 +95,7 @@ jobs:
 
       - name: Upload coverage artifact
         if: always() && matrix.node == '24.14.1'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage
           path: coverage
@@ -105,11 +105,25 @@ jobs:
         if: matrix.node == '24.14.1' && env.HAS_DOPPLER_TOKEN == 'true'
         run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
 
-      - name: Upload coverage to Codecov
+      - name: Export Codecov token from Doppler
         if: matrix.node == '24.14.1' && env.HAS_DOPPLER_TOKEN == 'true'
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-        run: doppler run -- npx --yes codecov --file coverage/lcov.info --disable-search
+        run: |
+          doppler run -- bash <<'BASH'
+          set -euo pipefail
+          test -n "${CODECOV_TOKEN:-}"
+          echo "::add-mask::$CODECOV_TOKEN"
+          printf 'CODECOV_TOKEN=%s\n' "$CODECOV_TOKEN" >> "$GITHUB_ENV"
+          BASH
+
+      - name: Upload coverage to Codecov
+        if: matrix.node == '24.14.1' && env.HAS_DOPPLER_TOKEN == 'true'
+        uses: codecov/codecov-action@v6
+        with:
+          files: coverage/lcov.info
+          disable_search: true
+          fail_ci_if_error: false
 
   integration:
     name: SSH Integration
@@ -117,11 +131,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24.14.1
           cache: npm
@@ -151,7 +165,7 @@ jobs:
 
       - name: Upload integration JUnit results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: junit-integration
           path: test-results/**/*.xml
@@ -167,11 +181,11 @@ jobs:
       - unit
       - integration
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24.14.1
           cache: npm
@@ -194,7 +208,7 @@ jobs:
           sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
 
       - name: Upload release verification artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: release-verification
           path: artifacts

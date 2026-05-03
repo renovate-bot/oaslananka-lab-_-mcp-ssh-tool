@@ -54,7 +54,7 @@ Use `bash scripts/verify-doppler-secrets.sh` or `powershell -ExecutionPolicy Byp
 | `ci.yml` | Format, lint, typecheck, audit, license, unit coverage, integration, build, SBOM, and pack checks. |
 | `security.yml` | CodeQL, dependency review, Scorecard, Gitleaks, Hadolint, Trivy, Zizmor, OSV, and Doppler Safety token validation. |
 | `sync-from-canonical.yml` | Manual org pull from `oaslananka/mcp-ssh-tool`. |
-| `trusted-publish.yml` | Primary human-triggered release path using npm trusted publishing and MCP Registry OIDC. |
+| `trusted-publish.yml` | Primary human-triggered release path using npm trusted publishing and Doppler-injected canonical GitHub token for MCP Registry namespace ownership. |
 | `publish.yml` | Org-only emergency token publish fallback using `NPM_TOKEN` from Doppler. |
 | `branch-hygiene.yml` | Monthly stale branch report. |
 

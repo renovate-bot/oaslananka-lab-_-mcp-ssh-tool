@@ -47,6 +47,8 @@ Configuration comes from built-in v2 defaults, `SSH_MCP_POLICY_FILE`, environmen
 | `SSH_MCP_COMMAND_DENY` | unset | Comma-separated command regex deny-list. |
 | `SSH_MCP_PATH_ALLOW_PREFIXES` | `/tmp,/var/tmp,/home,/Users` | Prefixes where destructive fs operations may be allowed. |
 | `SSH_MCP_PATH_DENY_PREFIXES` | protected system paths | Prefixes that are always denied. |
+| `SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES` | OS temp directory | MCP-server-host local prefixes allowed for `file_upload` sources and `file_download` destinations. |
+| `SSH_MCP_LOCAL_PATH_DENY_PREFIXES` | unset | MCP-server-host local prefixes that are always denied for transfers. |
 
 Example:
 
@@ -61,7 +63,9 @@ Example:
   "commandAllow": ["^(uname|df|uptime|systemctl status)\\b"],
   "commandDeny": ["rm\\s+-rf\\s+/", "shutdown", "reboot"],
   "pathAllowPrefixes": ["/tmp", "/home/deploy"],
-  "pathDenyPrefixes": ["/etc/shadow", "/etc/sudoers", "/boot", "/dev", "/proc"]
+  "pathDenyPrefixes": ["/etc/shadow", "/etc/sudoers", "/boot", "/dev", "/proc"],
+  "localPathAllowPrefixes": ["/var/tmp/mcp-ssh-tool"],
+  "localPathDenyPrefixes": []
 }
 ```
 
@@ -87,6 +91,7 @@ SSH_MCP_MAX_SESSIONS=50
 SSH_MCP_SESSION_TTL=1800000
 SSH_MCP_COMMAND_TIMEOUT=45000
 SSH_MCP_MAX_FILE_SIZE=10485760
+SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES=/var/tmp/mcp-ssh-tool
 SSH_MCP_HTTP_HOST=127.0.0.1
 SSH_MCP_HTTP_PORT=3000
 ```

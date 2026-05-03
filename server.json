@@ -2,17 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.oaslananka/mcp-ssh-tool",
   "title": "SSH MCP Tool",
-  "description": "Production-grade MCP SSH automation server with secure defaults, policy enforcement, structured tool outputs, resources, prompts, and modern transports.",
+  "description": "Secure MCP SSH automation server with policy controls, resources, prompts, stdio, and HTTP.",
   "repository": {
     "url": "https://github.com/oaslananka/mcp-ssh-tool",
     "source": "github"
   },
-  "version": "2.0.0",
+  "version": "2.1.1",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "mcp-ssh-tool",
-      "version": "2.0.0",
+      "version": "2.1.1",
       "transport": {
         "type": "stdio"
       }
