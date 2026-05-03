@@ -75,6 +75,8 @@ export const DEFAULT_CONFIG: ServerConfig = {
     commandDeny: [],
     pathAllowPrefixes: ["/tmp", "/var/tmp", "/home", "/Users"],
     pathDenyPrefixes: ["/etc/sudoers", "/etc/shadow", "/etc/passwd", "/boot", "/dev", "/proc"],
+    localPathAllowPrefixes: [os.tmpdir()],
+    localPathDenyPrefixes: [],
   },
   http: {
     host: "127.0.0.1",
@@ -234,6 +236,12 @@ export class ConfigManager {
       pathDenyPrefixes: parseList(process.env.SSH_MCP_PATH_DENY_PREFIXES).length
         ? parseList(process.env.SSH_MCP_PATH_DENY_PREFIXES)
         : (filePolicy.pathDenyPrefixes ?? config.policy.pathDenyPrefixes),
+      localPathAllowPrefixes: parseList(process.env.SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES).length
+        ? parseList(process.env.SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES)
+        : (filePolicy.localPathAllowPrefixes ?? config.policy.localPathAllowPrefixes),
+      localPathDenyPrefixes: parseList(process.env.SSH_MCP_LOCAL_PATH_DENY_PREFIXES).length
+        ? parseList(process.env.SSH_MCP_LOCAL_PATH_DENY_PREFIXES)
+        : (filePolicy.localPathDenyPrefixes ?? config.policy.localPathDenyPrefixes),
     };
     config.policy.allowRootLogin = config.security.allowRootLogin;
 
@@ -270,6 +278,12 @@ export class ConfigManager {
         ...config.policy.pathAllowPrefixes,
       ],
       pathDenyPrefixes: overrides.policy?.pathDenyPrefixes ?? [...config.policy.pathDenyPrefixes],
+      localPathAllowPrefixes: overrides.policy?.localPathAllowPrefixes ?? [
+        ...(config.policy.localPathAllowPrefixes ?? []),
+      ],
+      localPathDenyPrefixes: overrides.policy?.localPathDenyPrefixes ?? [
+        ...(config.policy.localPathDenyPrefixes ?? []),
+      ],
     };
 
     return {
@@ -314,6 +328,8 @@ export class ConfigManager {
         commandDeny: [...this.config.policy.commandDeny],
         pathAllowPrefixes: [...this.config.policy.pathAllowPrefixes],
         pathDenyPrefixes: [...this.config.policy.pathDenyPrefixes],
+        localPathAllowPrefixes: [...(this.config.policy.localPathAllowPrefixes ?? [])],
+        localPathDenyPrefixes: [...(this.config.policy.localPathDenyPrefixes ?? [])],
       }),
       http: Object.freeze({
         ...this.config.http,
@@ -343,6 +359,12 @@ export class ConfigManager {
       ],
       pathDenyPrefixes: updates.policy?.pathDenyPrefixes ?? [
         ...this.config.policy.pathDenyPrefixes,
+      ],
+      localPathAllowPrefixes: updates.policy?.localPathAllowPrefixes ?? [
+        ...(this.config.policy.localPathAllowPrefixes ?? []),
+      ],
+      localPathDenyPrefixes: updates.policy?.localPathDenyPrefixes ?? [
+        ...(this.config.policy.localPathDenyPrefixes ?? []),
       ],
     };
 

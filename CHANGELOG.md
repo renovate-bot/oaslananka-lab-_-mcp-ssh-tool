@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.1] - 2026-05-04
+
+### Security
+
+- Hardened transfer path authorization so MCP-server-host local file reads and writes are checked against separate local transfer policy prefixes.
+- Hardened path deny-prefix checks with canonical normalization and segment-boundary matching.
+- Hardened HTTP bearer authentication by using fixed-length constant-time token comparison.
+
+### Changed
+
+- `file_upload` and `file_download` local paths are now limited by `localPathAllowPrefixes`, which defaults to the OS temp directory. Set `SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES` or the policy-file field when transfers need another local workspace.
+
 ## [2.1.0] - 2026-04-29
 
 ### Added

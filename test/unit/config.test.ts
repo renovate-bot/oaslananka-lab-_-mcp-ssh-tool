@@ -14,6 +14,8 @@ describe("ConfigManager", () => {
     delete process.env.SSH_MCP_MAX_FILE_SIZE;
     delete process.env.SSH_MCP_ALLOW_RAW_SUDO;
     delete process.env.SSH_MCP_COMMAND_DENY;
+    delete process.env.SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES;
+    delete process.env.SSH_MCP_LOCAL_PATH_DENY_PREFIXES;
     delete process.env.SSH_MCP_HTTP_HOST;
     delete process.env.SSH_MCP_HTTP_PORT;
   });
@@ -27,6 +29,7 @@ describe("ConfigManager", () => {
     expect(config.get("security").hostKeyPolicy).toBe("strict");
     expect(config.get("security").allowRootLogin).toBe(false);
     expect(config.get("policy").allowRawSudo).toBe(false);
+    expect(config.get("policy").localPathAllowPrefixes?.length).toBeGreaterThan(0);
     expect(config.get("http").host).toBe("127.0.0.1");
   });
 
@@ -40,6 +43,8 @@ describe("ConfigManager", () => {
     process.env.SSH_MCP_MAX_FILE_SIZE = "1024";
     process.env.SSH_MCP_ALLOW_RAW_SUDO = "true";
     process.env.SSH_MCP_COMMAND_DENY = "rm -rf,shutdown";
+    process.env.SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES = "/tmp/local,/var/tmp/local";
+    process.env.SSH_MCP_LOCAL_PATH_DENY_PREFIXES = "/tmp/local/secret";
     process.env.SSH_MCP_HTTP_HOST = "localhost";
     process.env.SSH_MCP_HTTP_PORT = "4444";
 
@@ -54,6 +59,8 @@ describe("ConfigManager", () => {
     expect(config.get("security").hostKeyPolicy).toBe("strict");
     expect(config.get("policy").allowRawSudo).toBe(true);
     expect(config.get("policy").commandDeny).toEqual(["rm -rf", "shutdown"]);
+    expect(config.get("policy").localPathAllowPrefixes).toEqual(["/tmp/local", "/var/tmp/local"]);
+    expect(config.get("policy").localPathDenyPrefixes).toEqual(["/tmp/local/secret"]);
     expect(config.get("http").host).toBe("localhost");
     expect(config.get("http").port).toBe(4444);
   });

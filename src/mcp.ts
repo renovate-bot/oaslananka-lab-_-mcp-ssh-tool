@@ -16,7 +16,7 @@ import { getMCPPrompt, listMCPPrompts } from "./prompts.js";
 import { withSpan } from "./telemetry.js";
 import { createToolRegistry } from "./tools/index.js";
 
-export const SERVER_VERSION = "2.1.0";
+export const SERVER_VERSION = "2.1.1";
 
 export class SSHMCPServer {
   private readonly server: Server;

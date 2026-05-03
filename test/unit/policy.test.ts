@@ -13,6 +13,8 @@ function policy(overrides: Partial<PolicyConfig> = {}) {
     commandDeny: [],
     pathAllowPrefixes: ["/tmp"],
     pathDenyPrefixes: ["/etc/shadow"],
+    localPathAllowPrefixes: ["/tmp"],
+    localPathDenyPrefixes: [],
     ...overrides,
   });
 }
@@ -90,6 +92,105 @@ describe("PolicyEngine", () => {
         destructive: true,
       }),
     ).toThrow("outside allowed prefixes");
+  });
+
+  test("canonicalizes deny prefixes before segment-boundary checks", () => {
+    const engine = policy({
+      pathDenyPrefixes: ["/var/../etc/"],
+    });
+
+    expect(() =>
+      engine.assertAllowed({
+        action: "fs.read",
+        path: "/etc/passwd",
+      }),
+    ).toThrow("denied by policy");
+
+    expect(() =>
+      engine.assertAllowed({
+        action: "fs.read",
+        path: "/etc",
+      }),
+    ).toThrow("denied by policy");
+
+    expect(
+      engine.assertAllowed({
+        action: "fs.read",
+        path: "/etc2/passwd",
+      }),
+    ).toEqual(expect.objectContaining({ allowed: true }));
+
+    expect(() =>
+      engine.assertAllowed({
+        action: "fs.read",
+        path: "/var/../etc/passwd",
+      }),
+    ).toThrow("denied by policy");
+
+    expect(
+      engine.assertAllowed({
+        action: "fs.read",
+        path: "/etc/../home/user/file",
+      }),
+    ).toEqual(expect.objectContaining({ allowed: true }));
+
+    expect(() =>
+      engine.assertAllowed({
+        action: "fs.read",
+        path: "//etc///passwd",
+      }),
+    ).toThrow("denied by policy");
+
+    expect(() =>
+      engine.assertAllowed({
+        action: "fs.read",
+        path: "./etc/passwd",
+      }),
+    ).toThrow("denied by policy");
+
+    expect(() =>
+      engine.assertAllowed({
+        action: "fs.read",
+        path: "/tmp/a\0b",
+      }),
+    ).toThrow("NUL");
+
+    expect(
+      engine.assertAllowed({
+        action: "fs.read",
+        path: "/tmp/allowed",
+      }),
+    ).toEqual(expect.objectContaining({ allowed: true }));
+  });
+
+  test("enforces local transfer prefixes separately from remote path policy", () => {
+    const engine = policy({
+      localPathAllowPrefixes: ["/tmp/allowed"],
+      localPathDenyPrefixes: ["/tmp/allowed/blocked"],
+      pathAllowPrefixes: ["/remote"],
+      pathDenyPrefixes: ["/remote/secret"],
+    });
+
+    expect(
+      engine.assertAllowed({
+        action: "transfer.local.read",
+        path: "/tmp/allowed/file.txt",
+      }),
+    ).toEqual(expect.objectContaining({ allowed: true }));
+
+    expect(() =>
+      engine.assertAllowed({
+        action: "transfer.local.read",
+        path: "/tmp/allowed2/file.txt",
+      }),
+    ).toThrow("outside allowed prefixes");
+
+    expect(() =>
+      engine.assertAllowed({
+        action: "transfer.local.write",
+        path: "/tmp/allowed/blocked/file.txt",
+      }),
+    ).toThrow("denied by policy");
   });
 
   test("explain mode returns policy verdicts without throwing", () => {

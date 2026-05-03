@@ -6,6 +6,7 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { SSEServerTransport } from "@modelcontextprotocol/sdk/server/sse.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
+import { isBearerAuthorizationValid } from "./auth.js";
 import { createContainer } from "./container.js";
 import { SERVER_VERSION, SSHMCPServer } from "./mcp.js";
 import { logger } from "./logging.js";
@@ -35,6 +36,10 @@ function isLoopbackHost(host: string): boolean {
 }
 
 function validateStartupConfig(): void {
+  if (httpConfig.bearerTokenFile && bearerToken?.length === 0) {
+    throw new Error("Refusing HTTP MCP startup with an empty bearer token file");
+  }
+
   if (isLoopbackHost(httpConfig.host)) {
     return;
   }
@@ -66,8 +71,7 @@ function rejectIfUnauthorized(req: IncomingMessage, res: ServerResponse): boolea
     return false;
   }
 
-  const authorization = req.headers.authorization ?? "";
-  if (authorization !== `Bearer ${bearerToken}`) {
+  if (!isBearerAuthorizationValid(req.headers.authorization, bearerToken)) {
     sendJson(res, 401, { error: "Missing or invalid bearer token" });
     return true;
   }

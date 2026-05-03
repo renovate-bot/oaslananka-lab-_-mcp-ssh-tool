@@ -43,6 +43,7 @@ All mutating or privilege-sensitive handlers call the central policy engine. Pol
 - destructive command patterns
 - path allow/deny prefixes
 - destructive filesystem operations
+- local transfer path allow/deny prefixes for MCP-server-host files used by `file_upload` and `file_download`
 
 Use `policyMode: "explain"` to get a policy verdict without executing. This is the recommended AI-client pattern before configuration changes, deletes, sudo, package removal, service restart/stop, transfers, and tunnels.
 
