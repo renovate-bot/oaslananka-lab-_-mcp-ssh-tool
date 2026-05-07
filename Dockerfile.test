@@ -1,13 +1,14 @@
 # Dockerfile for E2E testing mcp-ssh-tool against SSH server
-FROM node:22-alpine
+FROM node:24-alpine
 
 WORKDIR /app
 
 # Copy package files first for better layer caching
-COPY package*.json ./
+COPY package.json package-lock.json ./
+COPY scripts/use-ci-npm.mjs scripts/use-ci-npm.mjs
 
 # Install dependencies
-RUN npm ci
+RUN node scripts/use-ci-npm.mjs && npm ci
 
 # Copy source and test files
 COPY src/ ./src/

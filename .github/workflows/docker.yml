@@ -1,0 +1,106 @@
+name: Docker
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      publish:
+        description: "Set to true only for the approved GHCR publish run"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      version_tag:
+        description: "Existing release tag to publish, for example v2.1.1"
+        required: false
+        type: string
+      approval:
+        description: "Type APPROVE_CONTAINER_PUBLISH only when publish=true"
+        required: true
+        default: "DRY_RUN"
+
+permissions:
+  contents: read
+
+env:
+  IMAGE_NAME: ghcr.io/oaslananka-lab/mcp-ssh-tool
+
+concurrency:
+  group: docker-${{ github.workflow }}-${{ github.ref }}-${{ inputs.version_tag || '' }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build and smoke image
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - name: Build local image
+        run: docker build -t mcp-ssh-tool:local .
+
+      - name: Smoke CLI
+        run: |
+          docker run --rm mcp-ssh-tool:local --version
+          docker run --rm mcp-ssh-tool:local --help
+
+  publish-ghcr:
+    name: Publish GHCR image
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && github.event_name == 'workflow_dispatch' && inputs.publish == 'true' && inputs.approval == 'APPROVE_CONTAINER_PUBLISH' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs:
+      - build
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate requested tag
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: |
+          set -euo pipefail
+          if ! echo "$VERSION_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "version_tag must be a semver tag like v2.1.1."
+            exit 1
+          fi
+          git rev-parse -q --verify "refs/tags/${VERSION_TAG}" >/dev/null
+
+      - name: Log in to GHCR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GHCR_ACTOR: ${{ github.actor }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
+
+      - name: Build and push image
+        env:
+          VERSION_TAG: ${{ inputs.version_tag }}
+        run: |
+          set -euo pipefail
+          VERSION="${VERSION_TAG#v}"
+          docker build \
+            --build-arg VCS_REF="$(git rev-list -n 1 "$VERSION_TAG")" \
+            --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -t "${IMAGE_NAME}:${VERSION}" \
+            -t "${IMAGE_NAME}:${VERSION_TAG}" \
+            .
+          docker push "${IMAGE_NAME}:${VERSION}"
+          docker push "${IMAGE_NAME}:${VERSION_TAG}"
