@@ -103,6 +103,7 @@ describe("SSHMCPServer", () => {
     await expect(handlers.get(ListToolsRequestSchema)?.()).resolves.toEqual(
       expect.objectContaining({
         tools: expect.arrayContaining([
+          expect.objectContaining({ name: "connector_status" }),
           expect.objectContaining({ name: "ssh_open_session" }),
           expect.objectContaining({ name: "get_metrics" }),
         ]),
@@ -154,6 +155,68 @@ describe("SSHMCPServer", () => {
     expect(rateCheckSpy).not.toHaveBeenCalled();
 
     await destroyContainer(container);
+  });
+
+  test("remote connector profile hides credential-taking and mutation tools", async () => {
+    const base = createTestContainer();
+    const container = {
+      ...base,
+      config: {
+        get: jest.fn((key: string) =>
+          key === "connector"
+            ? {
+                toolProfile: "remote-readonly",
+                credentialProvider: "none",
+                credentialCommandArgs: [],
+                credentialCommandTimeoutMs: 5000,
+              }
+            : base.config.get(key as never),
+        ),
+        getAll: jest.fn(() => ({
+          ...base.config.getAll(),
+          connector: {
+            toolProfile: "remote-readonly" as const,
+            credentialProvider: "none" as const,
+            credentialCommandArgs: [],
+            credentialCommandTimeoutMs: 5000,
+          },
+        })),
+      },
+    } as unknown as AppContainer;
+
+    const server = new SSHMCPServer(container);
+    const handlers = getHandlers(server);
+    const listTools = (await handlers.get(ListToolsRequestSchema)?.()) as {
+      tools: Array<{ name: string; inputSchema?: { properties?: Record<string, unknown> } }>;
+    };
+    const toolNames = listTools.tools.map((tool) => tool.name);
+
+    expect(toolNames).toEqual(
+      expect.arrayContaining([
+        "connector_status",
+        "ssh_hosts_list",
+        "ssh_policy_explain",
+        "ssh_host_inspect",
+        "ssh_mutation_plan",
+      ]),
+    );
+    expect(toolNames).not.toEqual(expect.arrayContaining(["ssh_open_session", "proc_exec"]));
+    expect(JSON.stringify(listTools.tools)).not.toMatch(
+      /password|privateKey|privateKeyPath|passphrase|sudoPassword/,
+    );
+
+    await expect(
+      handlers.get(CallToolRequestSchema)?.({
+        params: { name: "ssh_open_session", arguments: {} },
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        isError: true,
+        structuredContent: expect.objectContaining({ code: "ETOOLPROFILE" }),
+      }),
+    );
+
+    await destroyContainer(base);
   });
 
   test("returns an error response when the rate limit blocks a tool call", async () => {

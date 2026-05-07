@@ -1,0 +1,58 @@
+name: Sync Labels
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/labels.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    name: Sync labels from labels.yml
+    if: github.repository == 'oaslananka-lab/mcp-ssh-tool'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+
+      - name: Sync labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          labels_jsonl="${RUNNER_TEMP}/labels.jsonl"
+          existing_labels="${RUNNER_TEMP}/existing-labels.txt"
+
+          ruby -ryaml -rjson -e '
+            labels = YAML.load_file(".github/labels.yml")
+            abort ".github/labels.yml must contain a label array" unless labels.is_a?(Array)
+            labels.each do |label|
+              puts JSON.dump({
+                name: label.fetch("name"),
+                color: label.fetch("color"),
+                description: label.fetch("description", "")
+              })
+            end
+          ' > "${labels_jsonl}"
+
+          gh label list --limit 1000 --json name --jq '.[].name' > "${existing_labels}"
+
+          while IFS= read -r label_json; do
+            name="$(jq -r '.name' <<< "${label_json}")"
+            color="$(jq -r '.color' <<< "${label_json}")"
+            description="$(jq -r '.description' <<< "${label_json}")"
+
+            if grep -Fxq "${name}" "${existing_labels}"; then
+              gh label edit "${name}" --color "${color}" --description "${description}"
+            else
+              gh label create "${name}" --color "${color}" --description "${description}"
+            fi
+          done < "${labels_jsonl}"

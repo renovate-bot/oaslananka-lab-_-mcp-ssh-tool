@@ -5,6 +5,7 @@ import { createProcessService } from "../process.js";
 import { createStreamingService } from "../streaming.js";
 import { createTransferService } from "../transfer.js";
 import { createTunnelService } from "../tunnel.js";
+import { ConnectorToolProvider } from "./connector.provider.js";
 import { EnsureToolProvider } from "./ensure.provider.js";
 import { FsToolProvider } from "./fs.provider.js";
 import { ProcessToolProvider } from "./process.provider.js";
@@ -47,7 +48,15 @@ export function createToolRegistry(container: AppContainer): ToolRegistry {
     policy: container.policy,
   });
 
-  return new ToolRegistry()
+  return new ToolRegistry(container.config.get("connector").toolProfile)
+    .register(
+      new ConnectorToolProvider({
+        sessionManager: container.sessionManager,
+        metrics: container.metrics,
+        config: container.config.getAll(),
+        policy: container.policy,
+      }),
+    )
     .register(
       new SessionToolProvider({
         sessionManager: container.sessionManager,

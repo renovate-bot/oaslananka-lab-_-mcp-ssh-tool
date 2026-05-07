@@ -2,8 +2,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { logger } from "./logging.js";
+import { parseToolProfile, type ToolProfile } from "./connector-profile.js";
 import type { PolicyConfig } from "./policy.js";
 import type { HostKeyPolicy } from "./types.js";
+
+export const CONNECTOR_CREDENTIAL_PROVIDERS = ["none", "agent", "command"] as const;
+export type ConnectorCredentialProvider = (typeof CONNECTOR_CREDENTIAL_PROVIDERS)[number];
 
 /**
  * Server configuration options
@@ -44,6 +48,24 @@ export interface ServerConfig {
     bearerTokenFile?: string;
     enableLegacySse: boolean;
     maxRequestBodyBytes: number;
+  };
+  /** Remote ChatGPT/Claude connector settings */
+  connector: {
+    toolProfile: ToolProfile;
+    credentialProvider: ConnectorCredentialProvider;
+    credentialCommand?: string;
+    credentialCommandArgs: string[];
+    credentialCommandTimeoutMs: number;
+    defaultUsername?: string;
+  };
+  /** HTTP authorization settings for remote MCP clients */
+  auth: {
+    mode: "bearer" | "oauth";
+    oauthIssuer?: string;
+    oauthAudience?: string;
+    oauthJwksUrl?: string;
+    oauthResource?: string;
+    oauthRequiredScopes: string[];
   };
 }
 
@@ -86,6 +108,16 @@ export const DEFAULT_CONFIG: ServerConfig = {
     enableLegacySse: false,
     maxRequestBodyBytes: 1024 * 1024,
   },
+  connector: {
+    toolProfile: "full",
+    credentialProvider: "none",
+    credentialCommandArgs: [],
+    credentialCommandTimeoutMs: 5000,
+  },
+  auth: {
+    mode: "bearer",
+    oauthRequiredScopes: ["mcp-ssh-tool.read"],
+  },
 };
 
 function parseBoolean(value: string | undefined, fallback: boolean): boolean {
@@ -118,6 +150,26 @@ function parseHostKeyPolicy(value: string | undefined, fallback: HostKeyPolicy):
     return value;
   }
   return fallback;
+}
+
+function parseCredentialProvider(
+  value: string | undefined,
+  fallback: ConnectorCredentialProvider,
+): ConnectorCredentialProvider {
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (CONNECTOR_CREDENTIAL_PROVIDERS.includes(value as ConnectorCredentialProvider)) {
+    return value as ConnectorCredentialProvider;
+  }
+  return fallback;
+}
+
+function parseAuthMode(
+  value: string | undefined,
+  fallback: "bearer" | "oauth",
+): "bearer" | "oauth" {
+  return value === "oauth" || value === "bearer" ? value : fallback;
 }
 
 function loadPolicyFile(filePath: string | undefined): Partial<PolicyConfig> {
@@ -267,6 +319,47 @@ export class ConfigManager {
       ),
     };
 
+    const connectorCredentialCommand =
+      process.env.SSH_MCP_CONNECTOR_CREDENTIAL_COMMAND ?? config.connector.credentialCommand;
+    const connectorDefaultUsername =
+      process.env.SSH_MCP_CONNECTOR_DEFAULT_USERNAME ?? config.connector.defaultUsername;
+    config.connector = {
+      ...config.connector,
+      toolProfile: parseToolProfile(
+        process.env.SSH_MCP_TOOL_PROFILE ?? process.env.SSH_MCP_CONNECTOR_PROFILE,
+        config.connector.toolProfile,
+      ),
+      credentialProvider: parseCredentialProvider(
+        process.env.SSH_MCP_CONNECTOR_CREDENTIAL_PROVIDER,
+        config.connector.credentialProvider,
+      ),
+      ...(connectorCredentialCommand ? { credentialCommand: connectorCredentialCommand } : {}),
+      credentialCommandArgs: parseList(process.env.SSH_MCP_CONNECTOR_CREDENTIAL_COMMAND_ARGS).length
+        ? parseList(process.env.SSH_MCP_CONNECTOR_CREDENTIAL_COMMAND_ARGS)
+        : config.connector.credentialCommandArgs,
+      credentialCommandTimeoutMs: parseInteger(
+        process.env.SSH_MCP_CONNECTOR_CREDENTIAL_COMMAND_TIMEOUT_MS,
+        config.connector.credentialCommandTimeoutMs,
+      ),
+      ...(connectorDefaultUsername ? { defaultUsername: connectorDefaultUsername } : {}),
+    };
+
+    const oauthIssuer = process.env.SSH_MCP_OAUTH_ISSUER ?? config.auth.oauthIssuer;
+    const oauthAudience = process.env.SSH_MCP_OAUTH_AUDIENCE ?? config.auth.oauthAudience;
+    const oauthJwksUrl = process.env.SSH_MCP_OAUTH_JWKS_URL ?? config.auth.oauthJwksUrl;
+    const oauthResource = process.env.SSH_MCP_OAUTH_RESOURCE ?? config.auth.oauthResource;
+    config.auth = {
+      ...config.auth,
+      mode: parseAuthMode(process.env.SSH_MCP_HTTP_AUTH_MODE, config.auth.mode),
+      ...(oauthIssuer ? { oauthIssuer } : {}),
+      ...(oauthAudience ? { oauthAudience } : {}),
+      ...(oauthJwksUrl ? { oauthJwksUrl } : {}),
+      ...(oauthResource ? { oauthResource } : {}),
+      oauthRequiredScopes: parseList(process.env.SSH_MCP_OAUTH_REQUIRED_SCOPES).length
+        ? parseList(process.env.SSH_MCP_OAUTH_REQUIRED_SCOPES)
+        : config.auth.oauthRequiredScopes,
+    };
+
     // Apply programmatic overrides last
     const security = {
       ...config.security,
@@ -306,6 +399,20 @@ export class ConfigManager {
         ...overrides.http,
         allowedOrigins: overrides.http?.allowedOrigins ?? [...config.http.allowedOrigins],
       },
+      connector: {
+        ...config.connector,
+        ...overrides.connector,
+        credentialCommandArgs: overrides.connector?.credentialCommandArgs ?? [
+          ...config.connector.credentialCommandArgs,
+        ],
+      },
+      auth: {
+        ...config.auth,
+        ...overrides.auth,
+        oauthRequiredScopes: overrides.auth?.oauthRequiredScopes ?? [
+          ...config.auth.oauthRequiredScopes,
+        ],
+      },
     };
   }
 
@@ -340,6 +447,14 @@ export class ConfigManager {
       http: Object.freeze({
         ...this.config.http,
         allowedOrigins: [...this.config.http.allowedOrigins],
+      }),
+      connector: Object.freeze({
+        ...this.config.connector,
+        credentialCommandArgs: [...this.config.connector.credentialCommandArgs],
+      }),
+      auth: Object.freeze({
+        ...this.config.auth,
+        oauthRequiredScopes: [...this.config.auth.oauthRequiredScopes],
       }),
     });
   }
@@ -387,6 +502,20 @@ export class ConfigManager {
         ...this.config.http,
         ...updates.http,
         allowedOrigins: updates.http?.allowedOrigins ?? [...this.config.http.allowedOrigins],
+      },
+      connector: {
+        ...this.config.connector,
+        ...updates.connector,
+        credentialCommandArgs: updates.connector?.credentialCommandArgs ?? [
+          ...this.config.connector.credentialCommandArgs,
+        ],
+      },
+      auth: {
+        ...this.config.auth,
+        ...updates.auth,
+        oauthRequiredScopes: updates.auth?.oauthRequiredScopes ?? [
+          ...this.config.auth.oauthRequiredScopes,
+        ],
       },
     };
     logger.info("Configuration updated", { updates });

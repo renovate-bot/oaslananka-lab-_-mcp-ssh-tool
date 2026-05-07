@@ -2,6 +2,8 @@
 
 `jules-ci-autofix.yml` is guarded maintenance automation for the org repository only.
 
+`agent-review-fix-loop.yml` is the narrower review-thread repair loop. It uses the same `JULES_API_KEY` but only after a trusted actor invokes `/agent-review-fix`, the PR head is in the same repository, and `scripts/check-review-threads.mjs` finds actionable unresolved review threads.
+
 ## Modes
 
 | Mode | Trigger | Purpose |
@@ -29,3 +31,5 @@ JULES_API_KEY
 ```
 
 Jules-generated PRs must still pass the normal org CI/security gates before merge.
+
+Review-thread repair runs must follow `docs/automation/agent-review-fix-loop.md` and `docs/automation/agent-policy.md`. They must not resolve human review threads, publish, release, force mirror refs, approve, or merge.

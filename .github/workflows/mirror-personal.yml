@@ -1,6 +1,11 @@
 name: Mirror Personal Showcase
 
 on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -12,19 +17,37 @@ on:
           - "true"
           - "false"
       force_mirror:
-        description: "Use force push for main and v*.*.* tags"
+        description: "Allow force-with-lease for explicitly selected refs"
         required: true
         default: "false"
         type: choice
         options:
           - "false"
           - "true"
+      ref_scope:
+        description: "Refs to mirror"
+        required: true
+        default: "main-and-tags"
+        type: choice
+        options:
+          - main
+          - tags
+          - main-and-tags
+      tag_name:
+        description: "Optional single v*.*.* tag for tag-only force repair"
+        required: false
+        type: string
+      approval:
+        description: "Type MIRROR_CANONICAL_TO_PERSONAL only for force_mirror=true"
+        required: true
+        default: "DRY_RUN"
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: mirror-personal-main
+  group: mirror-personal-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -32,9 +55,9 @@ jobs:
     name: Mirror org main and release tags to personal showcase
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           ref: main
           fetch-depth: 0
@@ -51,37 +74,143 @@ jobs:
           fi
           git remote add personal "https://x-access-token:${PERSONAL_REPO_PUSH_TOKEN}@github.com/oaslananka/mcp-ssh-tool.git"
 
-      - name: Mirror main and release tags
+      - name: Preflight and mirror safe refs
         env:
-          DRY_RUN: ${{ inputs.dry_run }}
-          FORCE_MIRROR: ${{ inputs.force_mirror }}
+          APPROVAL: ${{ inputs.approval || '' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          FORCE_MIRROR: ${{ inputs.force_mirror || 'false' }}
+          REF_SCOPE: ${{ inputs.ref_scope || 'main-and-tags' }}
+          TAG_NAME: ${{ inputs.tag_name || '' }}
         run: |
           set -euo pipefail
-          push_flags=()
-          branch_ref="HEAD:refs/heads/main"
 
-          if [ "$DRY_RUN" = "true" ]; then
+          case "$REF_SCOPE" in
+            main|tags|main-and-tags) ;;
+            *)
+              echo "ref_scope must be main, tags, or main-and-tags."
+              exit 1
+              ;;
+          esac
+
+          if [[ -n "$TAG_NAME" && ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "tag_name must be empty or a v*.*.* semver tag."
+            exit 1
+          fi
+
+          if [[ "$FORCE_MIRROR" == "true" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" || "$APPROVAL" != "MIRROR_CANONICAL_TO_PERSONAL" ]]; then
+              echo "force_mirror=true requires workflow_dispatch and approval=MIRROR_CANONICAL_TO_PERSONAL."
+              exit 1
+            fi
+          fi
+
+          push_flags=()
+          if [[ "$DRY_RUN" == "true" ]]; then
             push_flags+=(--dry-run)
           fi
 
-          if [ "$FORCE_MIRROR" = "true" ]; then
-            branch_ref="+${branch_ref}"
-          fi
+          mirror_main() {
+            local org_main personal_main
+            org_main="$(git rev-parse HEAD)"
 
-          git push "${push_flags[@]}" personal "${branch_ref}"
-
-          while IFS= read -r tag; do
-            tag_ref="refs/tags/${tag}:refs/tags/${tag}"
-            if [ "$FORCE_MIRROR" = "true" ]; then
-              tag_ref="+${tag_ref}"
+            if git fetch --quiet personal refs/heads/main:refs/remotes/personal/main; then
+              personal_main="$(git rev-parse refs/remotes/personal/main)"
+            else
+              personal_main=""
             fi
-            git push "${push_flags[@]}" personal "${tag_ref}"
-          done < <(git tag -l "v*.*.*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
 
-      - name: Report mirror mode
-        run: |
-          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            if [[ -z "$personal_main" ]]; then
+              echo "PLAN: create personal/main at ${org_main}."
+              git push "${push_flags[@]}" personal HEAD:refs/heads/main
+              return
+            fi
+
+            if [[ "$personal_main" == "$org_main" ]]; then
+              echo "PLAN: personal/main already matches canonical main (${org_main})."
+              return
+            fi
+
+            if git merge-base --is-ancestor "$personal_main" "$org_main"; then
+              echo "PLAN: fast-forward personal/main ${personal_main} -> ${org_main}."
+              git push "${push_flags[@]}" personal HEAD:refs/heads/main
+              return
+            fi
+
+            if [[ "$FORCE_MIRROR" == "true" ]]; then
+              echo "PLAN: force-with-lease personal/main ${personal_main} -> ${org_main}."
+              git push "${push_flags[@]}" \
+                --force-with-lease=refs/heads/main:"$personal_main" \
+                personal HEAD:refs/heads/main
+              return
+            fi
+
+            echo "Personal showcase main diverges from canonical. Run mirror-personal.yml with force_mirror=true, ref_scope=main, approval=MIRROR_CANONICAL_TO_PERSONAL."
+            exit 1
+          }
+
+          mirror_tags() {
+            local personal_refs tag_list
+            personal_refs="$(mktemp)"
+            git ls-remote --tags personal "refs/tags/v*.*.*" | grep -v '\^{}' > "$personal_refs" || true
+
+            if [[ -n "$TAG_NAME" ]]; then
+              tag_list="$TAG_NAME"
+            else
+              tag_list="$(git tag -l "v*.*.*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+            fi
+
+            while IFS= read -r tag; do
+              [[ -z "$tag" ]] && continue
+              local org_tag personal_tag
+              org_tag="$(git rev-parse "refs/tags/${tag}")"
+              personal_tag="$(awk -v ref="refs/tags/${tag}" '$2 == ref { print $1 }' "$personal_refs")"
+
+              if [[ -z "$personal_tag" ]]; then
+                echo "PLAN: push missing personal tag ${tag} at ${org_tag}."
+                git push "${push_flags[@]}" personal "refs/tags/${tag}:refs/tags/${tag}"
+                continue
+              fi
+
+              if [[ "$personal_tag" == "$org_tag" ]]; then
+                echo "PLAN: personal tag ${tag} already matches canonical (${org_tag})."
+                continue
+              fi
+
+              if [[ "$FORCE_MIRROR" == "true" ]]; then
+                echo "PLAN: force-with-lease personal tag ${tag} ${personal_tag} -> ${org_tag}."
+                git push "${push_flags[@]}" \
+                  --force-with-lease="refs/tags/${tag}:${personal_tag}" \
+                  personal "refs/tags/${tag}:refs/tags/${tag}"
+                continue
+              fi
+
+              echo "Personal showcase tag ${tag} diverges from canonical. Run mirror-personal.yml with force_mirror=true, ref_scope=tags, tag_name=${tag}, approval=MIRROR_CANONICAL_TO_PERSONAL."
+              exit 1
+            done <<< "$tag_list"
+
+            while IFS=$'\t' read -r sha ref; do
+              tag="${ref#refs/tags/}"
+              if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+                echo "ADVISORY: personal showcase has extra tag ${tag} (${sha}); this workflow never deletes tags automatically."
+              fi
+            done < "$personal_refs"
+          }
+
+          case "$REF_SCOPE" in
+            main)
+              mirror_main
+              ;;
+            tags)
+              mirror_tags
+              ;;
+            main-and-tags)
+              mirror_main
+              mirror_tags
+              ;;
+          esac
+
+          if [[ "$DRY_RUN" == "true" ]]; then
             echo "Dry-run mirror completed. No personal repository refs were changed."
           else
-            echo "Personal showcase mirror updated from the org repository."
+            echo "Personal showcase mirror update completed from the organization repository."
           fi

@@ -43,6 +43,8 @@ function printHelp() {
     "  mcp-ssh-tool --stdio     Force stdio mode (default)",
     "  mcp-ssh-tool --host 127.0.0.1 --port 3000",
     "  mcp-ssh-tool --bearer-token-file /path/token --enable-legacy-sse",
+    "  mcp-ssh-tool --transport=http --tool-profile remote-safe",
+    "  mcp-ssh-tool --transport=http --connector-credential-provider agent",
     "",
     "Examples:",
     "  Run as MCP stdio server: mcp-ssh-tool",
@@ -68,6 +70,8 @@ interface CliOptions {
   port?: string;
   bearerTokenFile?: string;
   enableLegacySse: boolean;
+  toolProfile?: string;
+  connectorCredentialProvider?: string;
 }
 
 function parseArgs(argv: string[]): CliOptions {
@@ -130,6 +134,24 @@ function parseArgs(argv: string[]): CliOptions {
       case "--enable-legacy-sse":
         opts.enableLegacySse = true;
         break;
+      case "--tool-profile":
+        {
+          const next = argv[index + 1];
+          if (next !== undefined) {
+            opts.toolProfile = next;
+            index++;
+          }
+        }
+        break;
+      case "--connector-credential-provider":
+        {
+          const next = argv[index + 1];
+          if (next !== undefined) {
+            opts.connectorCredentialProvider = next;
+            index++;
+          }
+        }
+        break;
       case "--no-stdio":
         process.stderr.write(
           "Error: --no-stdio is not supported. This server only runs over stdio.\n",
@@ -171,6 +193,12 @@ async function main() {
     }
     if (opts.enableLegacySse) {
       process.env.SSH_MCP_ENABLE_LEGACY_SSE = "true";
+    }
+    if (opts.toolProfile) {
+      process.env.SSH_MCP_TOOL_PROFILE = opts.toolProfile;
+    }
+    if (opts.connectorCredentialProvider) {
+      process.env.SSH_MCP_CONNECTOR_CREDENTIAL_PROVIDER = opts.connectorCredentialProvider;
     }
     await import("./server-http.js");
     return;

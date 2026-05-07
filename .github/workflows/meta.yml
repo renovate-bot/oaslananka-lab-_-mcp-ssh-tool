@@ -19,6 +19,7 @@ permissions:
   contents: read
 
 env:
+  ACTIONLINT_VERSION: v1.7.12
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
@@ -32,11 +33,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24.14.1
           cache: npm
@@ -50,8 +51,8 @@ jobs:
 
       - name: Install actionlint
         run: |
-          bash <(curl -s https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
-          sudo mv actionlint /usr/local/bin/actionlint
+          go install "github.com/rhysd/actionlint/cmd/actionlint@${ACTIONLINT_VERSION}"
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
 
       - name: Install zizmor
         run: |
@@ -65,4 +66,4 @@ jobs:
         run: bash scripts/run-workflow-lints.sh
 
       - name: Validate release metadata
-        run: npm run sync-version -- --check && npm run validate:mcp-metadata && npm run validate:chatgpt-app
+        run: npm run sync-version -- --check && npm run validate:mcp-metadata && npm run validate:chatgpt-app && npm run validate:claude-connector

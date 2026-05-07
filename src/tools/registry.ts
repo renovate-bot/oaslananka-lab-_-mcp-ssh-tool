@@ -1,4 +1,9 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
+import {
+  filterToolsForProfile,
+  isToolAllowedForProfile,
+  type ToolProfile,
+} from "../connector-profile.js";
 import { logger } from "../logging.js";
 import type { ToolCallResult, ToolProvider } from "./types.js";
 
@@ -23,6 +28,11 @@ const TOOL_ALIASES: Record<string, string> = {
   "ssh.ping": "ssh_ping",
   "ssh.listConfiguredHosts": "ssh_list_configured_hosts",
   "ssh.resolveHost": "ssh_resolve_host",
+  "connector.status": "connector_status",
+  "ssh.hostsList": "ssh_hosts_list",
+  "ssh.policyExplain": "ssh_policy_explain",
+  "ssh.hostInspect": "ssh_host_inspect",
+  "ssh.mutationPlan": "ssh_mutation_plan",
 };
 
 function errorResult(payload: Record<string, unknown>): ToolCallResult {
@@ -41,6 +51,8 @@ function errorResult(payload: Record<string, unknown>): ToolCallResult {
 
 export class ToolRegistry {
   private readonly providers = new Map<string, ToolProvider>();
+
+  constructor(private readonly toolProfile: ToolProfile = "full") {}
 
   register(provider: ToolProvider): this {
     if (this.providers.has(provider.namespace)) {
@@ -64,11 +76,17 @@ export class ToolRegistry {
         })),
       );
     }
-    return tools;
+    return filterToolsForProfile(tools, this.toolProfile);
   }
 
   async dispatch(rawToolName: string, args: unknown): Promise<ToolCallResult> {
     const toolName = TOOL_ALIASES[rawToolName] ?? rawToolName;
+    if (!isToolAllowedForProfile(toolName, this.toolProfile)) {
+      return errorResult({
+        code: "ETOOLPROFILE",
+        message: `Tool ${toolName} is not exposed by the ${this.toolProfile} connector profile`,
+      });
+    }
 
     for (const provider of this.providers.values()) {
       const result = provider.handleTool(toolName, args);

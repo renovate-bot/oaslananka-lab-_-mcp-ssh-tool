@@ -112,8 +112,8 @@ assertEqual("registry/mcp-ssh-tool/mcp.json version", registryMcp.version, mcp.v
 assertEqual("registry/mcp-ssh-tool/mcp.json transport", registryMcp.transport, mcp.transport);
 assertEqual("registry/mcp-ssh-tool/mcp.json entrypoint", registryMcp.entrypoint, mcp.entrypoint);
 
-const versionMatch = /export const SERVER_VERSION = ["']([^"']+)["'];/u.exec(mcpTs);
-const nameMatch = /export const SERVER_NAME = ["']([^"']+)["'];/u.exec(mcpTs);
+const versionMatch = /export\s+const\s+SERVER_VERSION\s*=\s*["']([^"']+)["']\s*;/u.exec(mcpTs);
+const nameMatch = /export\s+const\s+SERVER_NAME\s*=\s*["']([^"']+)["']\s*;/u.exec(mcpTs);
 assertEqual("src/mcp.ts SERVER_VERSION", versionMatch?.[1], pkg.version);
 assertEqual("src/mcp.ts SERVER_NAME", nameMatch?.[1], pkg.mcpName);
 

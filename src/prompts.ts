@@ -1,3 +1,9 @@
+import {
+  filterPromptsForProfile,
+  isPromptAllowedForProfile,
+  type ToolProfile,
+} from "./connector-profile.js";
+
 /**
  * Prompt suggestions for AI assistants (ChatGPT, Claude, etc.)
  * These help users understand what they can do with the SSH MCP tool
@@ -128,13 +134,24 @@ export const MCP_PROMPTS: MCPPromptDefinition[] = [
   },
 ];
 
-export function listMCPPrompts() {
+export function listMCPPrompts(profile: ToolProfile = "full") {
   return {
-    prompts: MCP_PROMPTS.map((prompt) => ({ ...prompt })),
+    prompts: filterPromptsForProfile(
+      MCP_PROMPTS.map((prompt) => ({ ...prompt })),
+      profile,
+    ),
   };
 }
 
-export function getMCPPrompt(name: string, args: Record<string, string> = {}) {
+export function getMCPPrompt(
+  name: string,
+  args: Record<string, string> = {},
+  profile: ToolProfile = "full",
+) {
+  if (!isPromptAllowedForProfile(name, profile)) {
+    throw new Error(`Prompt ${name} is not exposed by the ${profile} connector profile`);
+  }
+
   const prompt = MCP_PROMPTS.find((item) => item.name === name);
   if (!prompt) {
     throw new Error(`Unknown prompt: ${name}`);

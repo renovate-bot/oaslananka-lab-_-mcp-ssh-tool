@@ -15,15 +15,18 @@ import { listResources, readResource } from "./resources.js";
 import { getMCPPrompt, listMCPPrompts } from "./prompts.js";
 import { withSpan } from "./telemetry.js";
 import { createToolRegistry } from "./tools/index.js";
+import type { ToolProfile } from "./connector-profile.js";
 
-export const SERVER_VERSION = "2.1.1";
+export const SERVER_VERSION = "2.2.0";
 export const SERVER_NAME = "io.github.oaslananka/mcp-ssh-tool";
 
 export class SSHMCPServer {
   private readonly server: Server;
   private readonly registry: ReturnType<typeof createToolRegistry>;
+  private readonly toolProfile: ToolProfile;
 
   constructor(private readonly container: AppContainer) {
+    this.toolProfile = container.config.get("connector").toolProfile;
     this.server = new Server(
       {
         name: SERVER_NAME,
@@ -49,7 +52,8 @@ export class SSHMCPServer {
         "mcp.list_resources",
         async (span) => {
           span.setAttribute("mcp.request.kind", "list_resources");
-          return listResources();
+          span.setAttribute("mcp.tool_profile", this.toolProfile);
+          return listResources(this.toolProfile);
         },
         {
           attributes: {
@@ -65,7 +69,8 @@ export class SSHMCPServer {
         async (span) => {
           span.setAttribute("mcp.request.kind", "read_resource");
           span.setAttribute("mcp.resource.uri", request.params.uri);
-          return readResource(request.params.uri, this.container);
+          span.setAttribute("mcp.tool_profile", this.toolProfile);
+          return readResource(request.params.uri, this.container, this.toolProfile);
         },
         {
           attributes: {
@@ -81,7 +86,8 @@ export class SSHMCPServer {
         "mcp.list_prompts",
         async (span) => {
           span.setAttribute("mcp.request.kind", "list_prompts");
-          return listMCPPrompts();
+          span.setAttribute("mcp.tool_profile", this.toolProfile);
+          return listMCPPrompts(this.toolProfile);
         },
         {
           attributes: {
@@ -97,7 +103,12 @@ export class SSHMCPServer {
         async (span) => {
           span.setAttribute("mcp.request.kind", "get_prompt");
           span.setAttribute("mcp.prompt.name", request.params.name);
-          return getMCPPrompt(request.params.name, request.params.arguments ?? {});
+          span.setAttribute("mcp.tool_profile", this.toolProfile);
+          return getMCPPrompt(
+            request.params.name,
+            request.params.arguments ?? {},
+            this.toolProfile,
+          );
         },
         {
           attributes: {

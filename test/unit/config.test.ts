@@ -18,6 +18,19 @@ describe("ConfigManager", () => {
     delete process.env.SSH_MCP_LOCAL_PATH_DENY_PREFIXES;
     delete process.env.SSH_MCP_HTTP_HOST;
     delete process.env.SSH_MCP_HTTP_PORT;
+    delete process.env.SSH_MCP_TOOL_PROFILE;
+    delete process.env.SSH_MCP_CONNECTOR_PROFILE;
+    delete process.env.SSH_MCP_CONNECTOR_CREDENTIAL_PROVIDER;
+    delete process.env.SSH_MCP_CONNECTOR_CREDENTIAL_COMMAND;
+    delete process.env.SSH_MCP_CONNECTOR_CREDENTIAL_COMMAND_ARGS;
+    delete process.env.SSH_MCP_CONNECTOR_CREDENTIAL_COMMAND_TIMEOUT_MS;
+    delete process.env.SSH_MCP_CONNECTOR_DEFAULT_USERNAME;
+    delete process.env.SSH_MCP_HTTP_AUTH_MODE;
+    delete process.env.SSH_MCP_OAUTH_ISSUER;
+    delete process.env.SSH_MCP_OAUTH_AUDIENCE;
+    delete process.env.SSH_MCP_OAUTH_JWKS_URL;
+    delete process.env.SSH_MCP_OAUTH_RESOURCE;
+    delete process.env.SSH_MCP_OAUTH_REQUIRED_SCOPES;
   });
 
   test("uses default values", () => {
@@ -31,6 +44,9 @@ describe("ConfigManager", () => {
     expect(config.get("policy").allowRawSudo).toBe(false);
     expect(config.get("policy").localPathAllowPrefixes?.length).toBeGreaterThan(0);
     expect(config.get("http").host).toBe("127.0.0.1");
+    expect(config.get("connector").toolProfile).toBe("full");
+    expect(config.get("connector").credentialProvider).toBe("none");
+    expect(config.get("auth").mode).toBe("bearer");
   });
 
   test("reads environment overrides", () => {
@@ -47,6 +63,15 @@ describe("ConfigManager", () => {
     process.env.SSH_MCP_LOCAL_PATH_DENY_PREFIXES = "/tmp/local/secret";
     process.env.SSH_MCP_HTTP_HOST = "localhost";
     process.env.SSH_MCP_HTTP_PORT = "4444";
+    process.env.SSH_MCP_TOOL_PROFILE = "remote-readonly";
+    process.env.SSH_MCP_CONNECTOR_CREDENTIAL_PROVIDER = "agent";
+    process.env.SSH_MCP_CONNECTOR_CREDENTIAL_COMMAND_ARGS = "resolver.mjs,--json";
+    process.env.SSH_MCP_CONNECTOR_DEFAULT_USERNAME = "deploy";
+    process.env.SSH_MCP_HTTP_AUTH_MODE = "oauth";
+    process.env.SSH_MCP_OAUTH_ISSUER = "https://auth.example";
+    process.env.SSH_MCP_OAUTH_AUDIENCE = "https://mcp.example/mcp";
+    process.env.SSH_MCP_OAUTH_JWKS_URL = "https://auth.example/.well-known/jwks.json";
+    process.env.SSH_MCP_OAUTH_REQUIRED_SCOPES = "mcp-ssh-tool.read,mcp-ssh-tool.plan";
 
     const config = new ConfigManager();
 
@@ -63,6 +88,19 @@ describe("ConfigManager", () => {
     expect(config.get("policy").localPathDenyPrefixes).toEqual(["/tmp/local/secret"]);
     expect(config.get("http").host).toBe("localhost");
     expect(config.get("http").port).toBe(4444);
+    expect(config.get("connector").toolProfile).toBe("remote-readonly");
+    expect(config.get("connector").credentialProvider).toBe("agent");
+    expect(config.get("connector").credentialCommandArgs).toEqual(["resolver.mjs", "--json"]);
+    expect(config.get("connector").defaultUsername).toBe("deploy");
+    expect(config.get("auth")).toEqual(
+      expect.objectContaining({
+        mode: "oauth",
+        oauthIssuer: "https://auth.example",
+        oauthAudience: "https://mcp.example/mcp",
+        oauthJwksUrl: "https://auth.example/.well-known/jwks.json",
+        oauthRequiredScopes: ["mcp-ssh-tool.read", "mcp-ssh-tool.plan"],
+      }),
+    );
   });
 
   test("reads STRICT_HOST_KEY_CHECKING as the preferred host verification flag", () => {

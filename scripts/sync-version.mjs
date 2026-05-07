@@ -68,13 +68,15 @@ if (fs.existsSync(path.join(root, "registry", "mcp-ssh-tool", "mcp.json"))) {
 const mcpTsPath = path.join(root, "src", "mcp.ts");
 if (fs.existsSync(mcpTsPath)) {
   const mcpTs = fs.readFileSync(mcpTsPath, "utf8");
-  const match = /export const SERVER_VERSION = ["']([0-9]+\.[0-9]+\.[0-9]+)["']/.exec(mcpTs);
+  const match = /export\s+const\s+SERVER_VERSION\s*=\s*["']([0-9]+\.[0-9]+\.[0-9]+)["']/.exec(
+    mcpTs,
+  );
   assertVersion("src/mcp.ts SERVER_VERSION", match?.[1]);
   if (!checkOnly) {
     fs.writeFileSync(
       mcpTsPath,
       mcpTs.replace(
-        /export const SERVER_VERSION = ["'][0-9]+\.[0-9]+\.[0-9]+["']/,
+        /export\s+const\s+SERVER_VERSION\s*=\s*["'][0-9]+\.[0-9]+\.[0-9]+["']/,
         `export const SERVER_VERSION = "${version}"`,
       ),
     );

@@ -1,0 +1,231 @@
+name: Agent Review Fix Loop
+
+on:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to repair"
+        required: true
+        type: string
+  pull_request_review:
+    types:
+      - submitted
+      - edited
+  pull_request_review_comment:
+    types:
+      - created
+      - edited
+  issue_comment:
+    types:
+      - created
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: agent-review-fix-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.run_id }}
+  cancel-in-progress: false
+
+env:
+  HAS_JULES_API_KEY: ${{ secrets.JULES_API_KEY != '' }}
+  MAX_REVIEW_FIX_ITERATIONS: "3"
+  TRUSTED_ACTORS: oaslananka
+
+jobs:
+  agent-review-fix:
+    name: Guarded review-thread repair
+    if: >-
+      github.repository == 'oaslananka-lab/mcp-ssh-tool' &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        github.actor == 'oaslananka'
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.14.1
+
+      - name: Build guarded Jules review context
+        id: ctx
+        env:
+          BODY: ${{ github.event.comment.body || github.event.review.body || '' }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PR: ${{ github.event.pull_request.number || '' }}
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PR: ${{ inputs.pr_number || '' }}
+          ISSUE_PR: ${{ github.event.issue.number || '' }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p .agent-review
+
+          skip_with_reason() {
+            {
+              echo "skip=true"
+              echo "skip_reason=$1"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          }
+
+          trusted_csv=",${TRUSTED_ACTORS// /},"
+          if [[ "$trusted_csv" != *",${GITHUB_ACTOR},"* ]]; then
+            skip_with_reason "untrusted_actor_${GITHUB_ACTOR}"
+          fi
+
+          if [[ "$HAS_JULES_API_KEY" != "true" ]]; then
+            skip_with_reason "missing_JULES_API_KEY"
+          fi
+
+          pr_number="${INPUT_PR:-${EVENT_PR:-${ISSUE_PR:-}}}"
+          if [[ -z "$pr_number" ]]; then
+            skip_with_reason "missing_pr_number"
+          fi
+
+          if [[ "$EVENT_NAME" == "issue_comment" && "$BODY" != *"/agent-review-fix"* ]]; then
+            skip_with_reason "missing_issue_comment_command"
+          fi
+
+          if [[ "$EVENT_NAME" == "pull_request_review_comment" && "$BODY" != *"/agent-review-fix"* ]]; then
+            skip_with_reason "missing_review_comment_command"
+          fi
+
+          if [[ "$EVENT_NAME" == "pull_request_review" && "$BODY" != *"/agent-review-fix"* ]]; then
+            labels="$(gh issue view "$pr_number" --repo "$REPO" --json labels --jq '.labels[].name' || true)"
+            if ! grep -qx "agent:fix-review" <<<"$labels"; then
+              skip_with_reason "missing_review_command_or_agent_label"
+            fi
+          fi
+
+          gh api "repos/${REPO}/pulls/${pr_number}" > .agent-review/pr.json
+          head_repo="$(jq -r '.head.repo.full_name // ""' .agent-review/pr.json)"
+          head_ref="$(jq -r '.head.ref // ""' .agent-review/pr.json)"
+          pr_url="$(jq -r '.html_url // ""' .agent-review/pr.json)"
+          is_draft="$(jq -r '.draft // false' .agent-review/pr.json)"
+
+          if [[ "$head_repo" != "$REPO" ]]; then
+            skip_with_reason "fork_or_external_head_repo"
+          fi
+
+          if [[ -z "$head_ref" || "$head_ref" == jules/* ]]; then
+            skip_with_reason "blocked_or_missing_head_branch"
+          fi
+
+          recent_count="$(
+            gh run list \
+              --repo "$REPO" \
+              --workflow agent-review-fix-loop.yml \
+              --branch "$head_ref" \
+              --limit 20 \
+              --json status \
+              --jq '[.[] | select(.status == "completed" or .status == "in_progress" or .status == "queued")] | length' \
+              2>/dev/null || echo 0
+          )"
+          if (( recent_count >= MAX_REVIEW_FIX_ITERATIONS )); then
+            skip_with_reason "max_iterations_reached_${recent_count}"
+          fi
+
+          node scripts/check-review-threads.mjs \
+            --repo "$REPO" \
+            --pr "$pr_number" \
+            --summary-file .agent-review/review-thread-summary.json \
+            --json > .agent-review/review-thread-summary.stdout.json
+
+          actionable_count="$(node -e "const s=require('./.agent-review/review-thread-summary.json'); console.log(s.actionableCount)")"
+          if [[ "$actionable_count" == "0" ]]; then
+            skip_with_reason "no_actionable_unresolved_threads"
+          fi
+
+          node <<'NODE'
+          const fs = require("node:fs");
+          const pr = JSON.parse(fs.readFileSync(".agent-review/pr.json", "utf8"));
+          const summary = JSON.parse(
+            fs.readFileSync(".agent-review/review-thread-summary.json", "utf8"),
+          );
+          const actionable = summary.threads.filter((thread) => thread.actionable);
+          const grouped = Object.groupBy(actionable, (thread) => thread.path || "(general)");
+          const prompt = [
+            "You are Jules running a guarded review-thread repair for mcp-ssh-tool.",
+            "",
+            "Objective:",
+            "Apply the smallest safe fixes for unresolved, not-outdated actionable review threads on this same-repository PR. Prefer human review over bot review. Parse GitHub suggestion blocks when present. Group work by file path and keep changes tightly scoped.",
+            "",
+            "Hard guardrails:",
+            "- Do not trigger publish, release, npm publish, MCP Registry publish, GHCR publish, personal mirror, ChatGPT app publish, or secret-management workflows.",
+            "- Do not auto-approve or auto-merge.",
+            "- Do not weaken SSH safety defaults, strict host-key verification, sudo/destructive policy controls, path traversal protections, HTTP bearer auth, or allowed-origin checks.",
+            "- Do not print secrets, bearer tokens, cookies, SSH private keys, passphrases, policy files, or raw command output secrets.",
+            "- Do not resolve human review threads yourself.",
+            "- Do not resolve security-sensitive bot threads unless a targeted test proves the fix and a maintainer later chooses to resolve the thread.",
+            "",
+            "Expected behavior:",
+            "1. Inspect the actionable review thread summary below.",
+            "2. Apply minimal source, workflow, test, or documentation fixes.",
+            "3. Run targeted tests plus cheap gates: formatting for changed files, MCP metadata validation if metadata changed, ChatGPT app validation if app files changed, workflow lint if workflows changed, and SSH/HTTP policy tests if security surfaces changed.",
+            "4. Commit and push to the PR branch.",
+            "5. Leave a PR comment summarizing threads inspected, fixes applied, outdated threads ignored, tests run, remaining unresolved threads, and that no publish was triggered.",
+            "6. If the PR is draft and cheap gates pass, you may mark it ready for review only when no actionable unresolved review threads remain.",
+            "",
+            "PR:",
+            `- Number: ${pr.number}`,
+            `- URL: ${pr.html_url}`,
+            `- Head branch: ${pr.head?.ref}`,
+            `- Draft: ${pr.draft}`,
+            "",
+            "Actionable review threads grouped by path:",
+            "```json",
+            JSON.stringify(grouped, null, 2),
+            "```",
+            "",
+          ].join("\n");
+          fs.writeFileSync(".agent-review/prompt.md", prompt);
+          NODE
+
+          {
+            echo "skip=false"
+            echo "pr_number=$pr_number"
+            echo "pr_url=$pr_url"
+            echo "starting_branch=$head_ref"
+            echo "is_draft=$is_draft"
+            echo "actionable_count=$actionable_count"
+            echo "prompt<<__JULES_PROMPT__"
+            cat .agent-review/prompt.md
+            echo "__JULES_PROMPT__"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Invoke Jules for guarded review fixes
+        if: steps.ctx.outputs.skip != 'true'
+        uses: google-labs-code/jules-invoke@bff7875eaa123cac6742b7cfc51005b95ba4d566
+        with:
+          jules_api_key: ${{ secrets.JULES_API_KEY }}
+          starting_branch: ${{ steps.ctx.outputs.starting_branch }}
+          include_last_commit: true
+          include_commit_log: true
+          prompt: ${{ steps.ctx.outputs.prompt }}
+
+      - name: Report skipped review fix loop
+        if: steps.ctx.outputs.skip == 'true'
+        env:
+          SKIP_REASON: ${{ steps.ctx.outputs.skip_reason }}
+        run: |
+          echo "Agent review fix loop skipped: ${SKIP_REASON}"
+
+      - name: Comment review fix loop dispatch
+        if: steps.ctx.outputs.skip != 'true'
+        env:
+          ACTIONABLE_COUNT: ${{ steps.ctx.outputs.actionable_count }}
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.ctx.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh pr comment "$PR_NUMBER" \
+            --repo "$REPO" \
+            --body "Agent review fix loop dispatched Jules for ${ACTIONABLE_COUNT} actionable unresolved review thread(s). Guardrails prohibit publish/release, personal mirror, secret printing, auto-approve, and auto-merge."

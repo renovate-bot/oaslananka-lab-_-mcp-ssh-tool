@@ -47,11 +47,11 @@ jobs:
       npm_already_published: ${{ steps.npm_status.outputs.already_published }}
       registry_already_published: ${{ steps.registry_status.outputs.already_published }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24.14.1
           package-manager-cache: false
@@ -147,8 +147,11 @@ jobs:
           echo "MCP Registry dry-run payload:"
           node -e "const s=require('./server.json'); console.log(JSON.stringify({name:s.name, version:s.version, repository:s.repository, packages:s.packages}, null, 2));"
 
+      - name: Inspect release state without network mutation
+        run: node scripts/release-state.mjs --offline --json
+
       - name: Upload release verification artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: release-verification-${{ inputs.version }}
           path: artifacts/*
@@ -167,15 +170,14 @@ jobs:
     environment: npm-production
     permissions:
       attestations: write
-      artifact-metadata: write
       contents: write
       id-token: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24.14.1
           package-manager-cache: false
@@ -188,18 +190,18 @@ jobs:
         run: npm ci
 
       - name: Download release verification artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           name: release-verification-${{ inputs.version }}
           path: artifacts
 
       - name: Attest package artifact
-        uses: actions/attest@v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
         with:
           subject-path: artifacts/${{ needs.validate.outputs.package_file }}
 
       - name: Attest SBOM
-        uses: actions/attest@v4
+        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26
         with:
           subject-path: artifacts/${{ needs.validate.outputs.package_file }}
           sbom-path: artifacts/sbom.cdx.json

@@ -1,0 +1,127 @@
+- name: ci:hold
+  color: b60205
+  description: CI or review control plane is holding the PR.
+- name: ci:ready
+  color: 0e8a16
+  description: Cheap control-plane gates are ready.
+- name: review:blocked
+  color: b60205
+  description: Unresolved actionable review threads block merge.
+- name: review:clean
+  color: 0e8a16
+  description: No actionable unresolved review threads.
+- name: agent:fix-review
+  color: 1d76db
+  description: Maintainer-approved agent review-thread repair request.
+- name: agent:needs-human
+  color: fbca04
+  description: Agent stopped because maintainer judgment is required.
+- name: release:blocking
+  color: b60205
+  description: Release authority gate is blocked.
+- name: release:dry-run-ok
+  color: 0e8a16
+  description: Release dry-run verification passed.
+- name: npm:blocking
+  color: b60205
+  description: npm package publication is blocked.
+- name: npm:test-ok
+  color: 0e8a16
+  description: npm package dry-run or test validation passed.
+- name: mcp-registry:blocking
+  color: b60205
+  description: MCP Registry publication is blocked.
+- name: mcp-registry:dry-run-ok
+  color: 0e8a16
+  description: MCP Registry dry-run validation passed.
+- name: mirror:blocked
+  color: b60205
+  description: Personal showcase mirror is blocked.
+- name: mirror:stale-tag
+  color: fbca04
+  description: Personal showcase tag differs from canonical.
+- name: security:blocking
+  color: b60205
+  description: Security validation blocks merge or release.
+- name: ssh-policy:blocking
+  color: b60205
+  description: SSH safety policy validation blocks merge or release.
+- name: dependency:major
+  color: 5319e7
+  description: Major dependency change requires review.
+- name: dependency:safe-minor
+  color: 0e8a16
+  description: Low-risk dependency maintenance candidate.
+- name: docs-only
+  color: cfd3d7
+  description: Documentation-only change.
+- name: workflows-only
+  color: c2e0c6
+  description: GitHub Actions-only change.
+
+- name: "type:bug"
+  color: d73a4a
+  description: Something is not working.
+- name: "type:feature"
+  color: a2eeef
+  description: New feature or request.
+- name: "type:chore"
+  color: e4e669
+  description: Maintenance, refactoring, tooling.
+- name: "type:docs"
+  color: 0075ca
+  description: Improvements or additions to documentation.
+- name: "type:security"
+  color: e11d48
+  description: Security fix or improvement.
+- name: "area:security"
+  color: b91c1c
+  description: Auth, safety, policy, HTTP security.
+- name: "area:ssh"
+  color: 1d4ed8
+  description: SSH session, tunnel, config.
+- name: "area:docker"
+  color: 0ea5e9
+  description: Dockerfile, docker-compose.
+- name: "area:ci"
+  color: 6366f1
+  description: CI/CD workflows.
+- name: "area:docs"
+  color: 3b82f6
+  description: Documentation changes.
+- name: "area:tests"
+  color: 8b5cf6
+  description: Test files.
+- name: "area:deps"
+  color: 10b981
+  description: Dependency updates.
+- name: "area:config"
+  color: f59e0b
+  description: Config files.
+- name: "priority:p0"
+  color: dc2626
+  description: Critical; fix immediately.
+- name: "priority:p1"
+  color: ea580c
+  description: High priority.
+- name: "priority:p2"
+  color: ca8a04
+  description: Medium priority.
+- name: "priority:p3"
+  color: 65a30d
+  description: Low priority / nice to have.
+- name: "status:stale"
+  color: e5e7eb
+  description: No activity for 60+ days.
+- name: "status:blocked"
+  color: f87171
+  description: Blocked by external factor.
+- name: "status:wip"
+  color: fbbf24
+  description: Work in progress.
+- name: pinned
+  color: "111827"
+  description: Pinned; never auto-close.
+- name: security
+  color: 7f1d1d
+  description: Security-related; never auto-close.

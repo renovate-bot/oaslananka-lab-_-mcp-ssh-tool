@@ -111,6 +111,39 @@ describe("SessionManager", () => {
     expect(session?.ssh.dispose).toHaveBeenCalled();
   });
 
+  test("uses policyHost for allowlist checks while connecting to the resolved host", async () => {
+    const assertAllowed = jest.fn<(context: unknown) => { allowed: boolean }>(() => ({
+      allowed: true,
+    }));
+    const policyManager = new SessionManager(2, 1000, 10000, undefined, {
+      assertAllowed,
+    } as any);
+
+    const result = await policyManager.openSession({
+      host: "192.0.2.10",
+      policyHost: "prod",
+      username: "deploy",
+      password: "secret",
+      auth: "password",
+    });
+    const connectConfig = (
+      policyManager.getSession(result.sessionId)?.ssh as NodeSSH & {
+        __connectConfig?: Record<string, unknown>;
+      }
+    ).__connectConfig;
+
+    expect(assertAllowed).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "ssh.open",
+        host: "prod",
+        username: "deploy",
+      }),
+    );
+    expect(connectConfig).toEqual(expect.objectContaining({ host: "192.0.2.10" }));
+
+    await policyManager.destroy();
+  });
+
   test("verifies strict known_hosts fingerprints with OpenSSH-style entries", async () => {
     const keyBlob = Buffer.from("known-host-key").toString("base64");
     const otherKeyBlob = Buffer.from("other-key").toString("base64");

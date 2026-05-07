@@ -1,5 +1,10 @@
 import { getConfiguredHosts } from "./ssh-config.js";
 import type { AppContainer } from "./container.js";
+import {
+  filterResourcesForProfile,
+  isResourceAllowedForProfile,
+  type ToolProfile,
+} from "./connector-profile.js";
 
 export interface MCPResource {
   uri: string;
@@ -53,15 +58,19 @@ const RESOURCE_DEFINITIONS: readonly MCPResource[] = [
   },
 ] as const;
 
-export function listResources(): { resources: MCPResource[] } {
+export function listResources(profile: ToolProfile = "full"): { resources: MCPResource[] } {
   return {
-    resources: RESOURCE_DEFINITIONS.map((resource) => ({ ...resource })),
+    resources: filterResourcesForProfile(
+      RESOURCE_DEFINITIONS.map((resource) => ({ ...resource })),
+      profile,
+    ),
   };
 }
 
 export async function readResource(
   uri: string,
   container: AppContainer,
+  profile: ToolProfile = "full",
 ): Promise<{
   contents: Array<{
     uri: string;
@@ -69,6 +78,10 @@ export async function readResource(
     text: string;
   }>;
 }> {
+  if (!isResourceAllowedForProfile(uri, profile)) {
+    throw new Error(`Resource ${uri} is not exposed by the ${profile} connector profile`);
+  }
+
   switch (uri) {
     case "mcp-ssh-tool://sessions/active":
       return jsonResource(uri, "application/json", container.sessionManager.getActiveSessions());

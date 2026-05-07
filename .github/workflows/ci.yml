@@ -31,15 +31,15 @@ concurrency:
 jobs:
   quality:
     name: Quality Gates
-    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24.14.1
           cache: npm
@@ -56,7 +56,7 @@ jobs:
 
   unit:
     name: Unit Tests (Node ${{ matrix.node }})
-    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -66,11 +66,11 @@ jobs:
           - 22.22.2
           - 24.14.1
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: ${{ matrix.node }}
           cache: npm
@@ -87,7 +87,7 @@ jobs:
 
       - name: Upload JUnit results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: junit-node-${{ matrix.node }}
           path: test-results/**/*.xml
@@ -95,7 +95,7 @@ jobs:
 
       - name: Upload coverage artifact
         if: always() && matrix.node == '24.14.1'
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: coverage
           path: coverage
@@ -119,7 +119,7 @@ jobs:
 
       - name: Upload coverage to Codecov
         if: matrix.node == '24.14.1' && env.HAS_DOPPLER_TOKEN == 'true'
-        uses: codecov/codecov-action@v6
+        uses: codecov/codecov-action@57e3a136b779b570ffcdbf80b3bdc90e7fab3de2
         with:
           files: coverage/lcov.info
           disable_search: true
@@ -127,15 +127,15 @@ jobs:
 
   integration:
     name: SSH Integration
-    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24.14.1
           cache: npm
@@ -165,7 +165,7 @@ jobs:
 
       - name: Upload integration JUnit results
         if: always()
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: junit-integration
           path: test-results/**/*.xml
@@ -173,7 +173,7 @@ jobs:
 
   package:
     name: Build, SBOM, and Pack
-    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
@@ -181,11 +181,11 @@ jobs:
       - unit
       - integration
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           persist-credentials: false
 
-      - uses: actions/setup-node@v6
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24.14.1
           cache: npm
@@ -208,20 +208,20 @@ jobs:
           sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
 
       - name: Upload release verification artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: release-verification
           path: artifacts
 
   docker:
     name: Docker Smoke
-    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     needs:
       - package
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
         with:
           persist-credentials: false
 

@@ -10,6 +10,7 @@ import { isBearerAuthorizationValid } from "./auth.js";
 import { createContainer } from "./container.js";
 import { SERVER_VERSION, SSHMCPServer } from "./mcp.js";
 import { logger } from "./logging.js";
+import { isOAuthAuthorizationValid, type OAuthVerificationConfig } from "./oauth.js";
 import { initTelemetry, shutdownTelemetry, withSpan } from "./telemetry.js";
 import { corsHeaders, isOriginAllowed, validateHttpStartupConfig } from "./http-security.js";
 
@@ -23,8 +24,12 @@ interface HttpSession {
 const endpoint = "/mcp";
 const legacySseEndpoint = "/sse";
 const legacyMessageEndpoint = "/messages";
+const oauthProtectedResourceEndpoint = "/.well-known/oauth-protected-resource";
 const container = createContainer();
 const httpConfig = container.config.get("http");
+const authConfig = container.config.get("auth");
+const connectorConfig = container.config.get("connector");
+const policyConfig = container.config.get("policy");
 const sessions = new Map<string, HttpSession>();
 const bearerToken = httpConfig.bearerTokenFile
   ? readFileSync(httpConfig.bearerTokenFile, "utf8").trim()
@@ -51,11 +56,47 @@ function sendJson(
   res.end(JSON.stringify(payload, null, 2));
 }
 
-function rejectIfUnauthorized(req: IncomingMessage, res: ServerResponse): boolean {
+function buildPublicMcpUrl(req: IncomingMessage): string {
+  const proto = req.headers["x-forwarded-proto"] ?? "https";
+  const protocol = Array.isArray(proto) ? proto[0] : proto;
+  return `${protocol}://${req.headers.host ?? `localhost:${httpConfig.port}`}${endpoint}`;
+}
+
+function protectedResourceMetadata(req: IncomingMessage): Record<string, unknown> {
+  return {
+    resource: authConfig.oauthResource ?? buildPublicMcpUrl(req),
+    resource_name: "mcp-ssh-tool",
+    bearer_methods_supported: ["header"],
+    scopes_supported: authConfig.oauthRequiredScopes,
+    authorization_servers: authConfig.oauthIssuer ? [authConfig.oauthIssuer] : [],
+  };
+}
+
+async function rejectIfUnauthorized(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const origin = req.headers.origin;
   if (!isOriginAllowed(origin, httpConfig.allowedOrigins)) {
     sendJson(req, res, 403, { error: "Origin is not allowed" });
     return true;
+  }
+
+  if (authConfig.mode === "oauth") {
+    const verificationConfig: OAuthVerificationConfig = {
+      audience: authConfig.oauthAudience ?? authConfig.oauthResource ?? buildPublicMcpUrl(req),
+      requiredScopes: authConfig.oauthRequiredScopes,
+    };
+    if (authConfig.oauthIssuer) {
+      verificationConfig.issuer = authConfig.oauthIssuer;
+    }
+    if (authConfig.oauthJwksUrl) {
+      verificationConfig.jwksUrl = authConfig.oauthJwksUrl;
+    }
+
+    const valid = await isOAuthAuthorizationValid(req.headers.authorization, verificationConfig);
+    if (!valid) {
+      sendJson(req, res, 401, { error: "Missing or invalid OAuth bearer token" });
+      return true;
+    }
+    return false;
   }
 
   if (!bearerToken) {
@@ -196,12 +237,23 @@ async function handleLegacyMessage(req: IncomingMessage, res: ServerResponse): P
   await session.transport.handlePostMessage(req, res);
 }
 
-validateHttpStartupConfig(httpConfig, bearerToken);
+validateHttpStartupConfig(httpConfig, bearerToken, {
+  toolProfile: connectorConfig.toolProfile,
+  allowedHosts: policyConfig.allowedHosts,
+  hostKeyPolicy: container.config.get("security").hostKeyPolicy,
+  authMode: authConfig.mode,
+  oauthConfigured: Boolean(authConfig.oauthIssuer && authConfig.oauthJwksUrl),
+});
 
 const httpServer = createServer((req, res) => {
   void (async () => {
     try {
       const requestUrl = new URL(req.url ?? endpoint, "http://localhost");
+
+      if (requestUrl.pathname === oauthProtectedResourceEndpoint && req.method === "GET") {
+        sendJson(req, res, 200, protectedResourceMetadata(req));
+        return;
+      }
 
       if (requestUrl.pathname === endpoint && req.method === "OPTIONS") {
         if (!isOriginAllowed(req.headers.origin, httpConfig.allowedOrigins)) {
@@ -213,7 +265,7 @@ const httpServer = createServer((req, res) => {
         return;
       }
 
-      if (rejectIfUnauthorized(req, res)) {
+      if (await rejectIfUnauthorized(req, res)) {
         return;
       }
 

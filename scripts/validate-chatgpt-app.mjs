@@ -28,6 +28,10 @@ if (!fs.existsSync(readinessPath)) {
 
 const pkg = readJson("package.json");
 const readiness = JSON.parse(fs.readFileSync(readinessPath, "utf8"));
+const forbiddenRemoteToolPattern =
+  /^(ssh_open_session|proc_exec|proc_sudo|fs_write|fs_rmrf|file_upload|file_download|tunnel_)/u;
+const forbiddenSchemaPattern =
+  /password|privateKey|privateKeyPath|passphrase|sudoPassword|bearer|token/iu;
 
 assert(readiness.schemaVersion === 1, "schemaVersion must be 1");
 assert(
@@ -80,8 +84,29 @@ assert(
   security.nonLoopbackHttpRequiresBearerAndOrigins === true,
   "non-loopback HTTP must require bearer auth and allowed origins",
 );
+assert(
+  security.nonLoopbackHttpRequiresRemoteSafeProfile === true,
+  "non-loopback HTTP must require a remote-safe connector profile",
+);
+assert(
+  security.nonLoopbackHttpRequiresStrictHostKeyPolicy === true,
+  "non-loopback HTTP must require strict host-key verification",
+);
 assert(security.auditLogsEnabled === true, "audit logs must be part of the app security model");
 assert(security.redactionRequired === true, "redaction must be part of the app security model");
+
+assert(
+  readiness.connector?.runtimeProfile === "chatgpt",
+  "connector.runtimeProfile must be chatgpt",
+);
+assert(
+  readiness.connector?.credentialEntryInChat === false,
+  "connector credential entry in chat must remain false",
+);
+assert(
+  readiness.connector?.protectedResourceMetadata === "/.well-known/oauth-protected-resource",
+  "connector protected resource metadata path must be declared",
+);
 
 const submission = readiness.submission ?? {};
 assert(
@@ -113,6 +138,17 @@ for (const profile of readiness.toolProfiles ?? []) {
       `${profile.name} must require explicit confirmation`,
     );
   }
+
+  for (const toolName of profile.tools ?? []) {
+    assert(
+      !forbiddenRemoteToolPattern.test(toolName),
+      `${profile.name} must not expose dangerous tool ${toolName}`,
+    );
+    assert(
+      !forbiddenSchemaPattern.test(toolName),
+      `${profile.name} tool ${toolName} must not include credential-like names`,
+    );
+  }
 }
 
 if (readiness.publishReady === true) {
@@ -134,6 +170,7 @@ if (readiness.publishReady === true) {
   assert(submission.privacyPolicyReviewed === true, "publishReady requires privacy review");
   assert(submission.screenshotsPrepared === true, "publishReady requires screenshots");
   assert(submission.reviewTestCasesPrepared === true, "publishReady requires review test cases");
+  assert(submission.oauthConfigured === true, "publishReady requires OAuth/JWKS configuration");
 }
 
 if (errors.length > 0) {

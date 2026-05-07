@@ -1,0 +1,159 @@
+name: Review Thread Gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - ready_for_review
+      - converted_to_draft
+      - labeled
+      - unlabeled
+  pull_request_review:
+    types:
+      - submitted
+      - edited
+      - dismissed
+  pull_request_review_comment:
+    types:
+      - created
+      - edited
+      - deleted
+  issue_comment:
+    types:
+      - created
+      - edited
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: "Pull request number to inspect"
+        required: true
+        type: string
+      fail_on_actionable:
+        description: "Fail when actionable unresolved threads exist"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: review-thread-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  review-thread-gate:
+    name: Unresolved Review Threads
+    if: >-
+      github.repository == 'oaslananka-lab/mcp-ssh-tool' &&
+      (
+        github.event_name != 'issue_comment' ||
+        github.event.issue.pull_request
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.14.1
+
+      - name: Resolve pull request number
+        id: context
+        env:
+          EVENT_PR: ${{ github.event.pull_request.number || '' }}
+          INPUT_PR: ${{ inputs.pr_number || '' }}
+          ISSUE_PR: ${{ github.event.issue.number || '' }}
+        run: |
+          set -euo pipefail
+          pr_number="${INPUT_PR:-${EVENT_PR:-${ISSUE_PR:-}}}"
+          if [ -z "$pr_number" ]; then
+            echo "Unable to resolve pull request number."
+            exit 1
+          fi
+          echo "pr_number=$pr_number" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure control-plane labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          ensure_label() {
+            gh label create "$1" \
+              --repo "$REPO" \
+              --color "$2" \
+              --description "$3" \
+              --force >/dev/null
+          }
+          ensure_label "review:blocked" "b60205" "Unresolved actionable review threads block merge"
+          ensure_label "ci:hold" "b60205" "CI or review control plane is holding the PR"
+          ensure_label "review:clean" "0e8a16" "No actionable unresolved review threads"
+          ensure_label "ci:ready" "0e8a16" "Cheap control-plane gates are ready"
+
+      - name: Inspect review threads
+        id: inspect
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node scripts/check-review-threads.mjs \
+            --repo "$REPO" \
+            --pr "$PR_NUMBER" \
+            --summary-file review-thread-summary.json \
+            --json \
+            --fail-on-actionable
+
+      - name: Apply gate labels
+        id: labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ steps.context.outputs.pr_number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const fs = require("node:fs");
+          const summary = JSON.parse(fs.readFileSync("review-thread-summary.json", "utf8"));
+          console.log(`actionable=${summary.actionableCount}`);
+          console.log(`add=${summary.labels.add.join(" ")}`);
+          console.log(`remove=${summary.labels.remove.join(" ")}`);
+          NODE
+
+          for label in $(node -e "const s=require('./review-thread-summary.json'); console.log(s.labels.remove.join(' '))"); do
+            gh issue edit "$PR_NUMBER" --repo "$REPO" --remove-label "$label" >/dev/null 2>&1 || true
+          done
+
+          for label in $(node -e "const s=require('./review-thread-summary.json'); console.log(s.labels.add.join(' '))"); do
+            if ! gh issue edit "$PR_NUMBER" --repo "$REPO" --add-label "$label" >/dev/null; then
+              echo "::warning::Unable to add label ${label}; continuing because label mutation is advisory."
+            fi
+          done
+
+      - name: Upload review thread summary
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
+        with:
+          name: review-thread-summary-${{ steps.context.outputs.pr_number }}
+          path: review-thread-summary.json
+          if-no-files-found: error
+
+      - name: Enforce review thread gate
+        if: ${{ steps.labels.outputs.actionable != '0' && (github.event_name != 'workflow_dispatch' || inputs.fail_on_actionable == 'true') }}
+        run: |
+          echo "Actionable unresolved review threads are present."
+          exit 1

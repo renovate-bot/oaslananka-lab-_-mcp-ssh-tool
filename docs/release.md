@@ -13,6 +13,7 @@ npm audit --audit-level=moderate
 npm pack --dry-run
 node scripts/validate-mcp-metadata.mjs
 node scripts/validate-chatgpt-app.mjs
+node scripts/release-state.mjs --offline
 node scripts/check-workflow-guards.mjs
 bash scripts/run-workflow-lints.sh
 ```
@@ -52,6 +53,14 @@ gh workflow run trusted-publish.yml \
 
 This does not authenticate to npm, does not publish to npm, does not publish MCP Registry metadata, and does not create a GitHub Release.
 
+Before a dry-run, inspect the read-only release state:
+
+```bash
+node scripts/release-state.mjs --repo oaslananka-lab/mcp-ssh-tool
+```
+
+If the inspected version is already present on npm or active/latest in the MCP Registry, `safe_to_publish` remains false and no live publish command is useful for that version.
+
 ## Human Live Publish
 
 Do not trigger this from an agent unless the user explicitly requests live publishing:
@@ -76,6 +85,8 @@ The live job is guarded by:
 - post-publish npm and MCP Registry verification
 
 If npm trusted publishing is reconfigured to use the `release` environment instead of `npm-production`, update the workflow and this document in the same PR.
+
+The personal showcase mirror is advisory after release. A mirror failure does not grant authority to publish from the personal repository and does not justify force-updating personal refs without the `mirror-personal.yml` approval flow.
 
 ## Post-Publish Verification
 

@@ -16,6 +16,7 @@ export interface AuthConfig {
  */
 export interface ConnectionParams {
   host: string;
+  policyHost?: string;
   username: string;
   port?: number;
   auth?: "auto" | "password" | "key" | "agent";

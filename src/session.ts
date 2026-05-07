@@ -133,10 +133,11 @@ export class SessionManager {
     const ttl = params.ttlMs ?? this.defaultTtlMs;
     const policyMode = params.policyMode ?? "enforce";
     const hostKeyPolicy = this.resolveHostKeyPolicy(params);
+    const policyHost = params.policyHost ?? params.host;
 
     const policyDecision = this.policy?.assertAllowed({
       action: "ssh.open",
-      host: params.host,
+      host: policyHost,
       username: params.username,
       mode: policyMode,
     });
