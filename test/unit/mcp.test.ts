@@ -11,9 +11,10 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { createTestContainer, type AppContainer } from "../../src/container.js";
 import { logger } from "../../src/logging.js";
-import { SERVER_VERSION, SSHMCPServer } from "../../src/mcp.js";
+import { SERVER_NAME, SERVER_VERSION, SSHMCPServer } from "../../src/mcp.js";
 
 const packageVersion = JSON.parse(readFileSync("package.json", "utf8")) as {
+  mcpName: string;
   version: string;
 };
 
@@ -65,6 +66,7 @@ describe("SSHMCPServer", () => {
 
   test("exposes the server version constant", () => {
     expect(SERVER_VERSION).toBe(packageVersion.version);
+    expect(SERVER_NAME).toBe(packageVersion.mcpName);
   });
 
   test("registers handlers and delegates tool calls when rate limiting is disabled", async () => {

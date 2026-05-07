@@ -11,6 +11,7 @@
   "files": [
     "dist",
     "docs",
+    "!docs/api",
     "examples",
     "AGENTS.md",
     "ARCHITECTURE.md",
@@ -49,11 +50,13 @@
     "setup:chatgpt": "node scripts/setup-chatgpt.mjs",
     "sync-version": "node scripts/sync-version.mjs",
     "version": "node scripts/sync-version.mjs && git add mcp.json server.json registry/mcp-ssh-tool/mcp.json src/mcp.ts",
+    "validate:mcp-metadata": "node scripts/validate-mcp-metadata.mjs",
+    "validate:chatgpt-app": "node scripts/validate-chatgpt-app.mjs",
     "audit": "npm audit --audit-level=moderate",
     "licenses:check": "node scripts/check-licenses.mjs",
     "pack:check": "node scripts/check-package-contents.mjs",
     "check:quality": "npm run format:check && npm run lint && npm run typecheck && npm run audit && npm run licenses:check",
-    "check:package": "npm run build && npm run sync-version -- --check && npm run pack:check",
+    "check:package": "npm run build && npm run sync-version -- --check && npm run validate:mcp-metadata && npm run validate:chatgpt-app && npm run pack:check",
     "check:push": "npm run format:check && npm run lint && npm run typecheck && npm test",
     "check": "npm run check:quality && npm run test:coverage && npm run check:package",
     "hook:pre-commit": "npm run format:staged",
@@ -80,9 +83,9 @@
     "type": "git",
     "url": "git+https://github.com/oaslananka-lab/mcp-ssh-tool.git"
   },
-  "homepage": "https://github.com/oaslananka/mcp-ssh-tool#readme",
+  "homepage": "https://github.com/oaslananka-lab/mcp-ssh-tool#readme",
   "bugs": {
-    "url": "https://github.com/oaslananka/mcp-ssh-tool/issues"
+    "url": "https://github.com/oaslananka-lab/mcp-ssh-tool/issues"
   },
   "publishConfig": {
     "access": "public"
@@ -103,7 +106,9 @@
   },
   "overrides": {
     "@hono/node-server": "^1.19.13",
-    "hono": "^4.12.14",
+    "express-rate-limit": "^8.5.1",
+    "hono": "^4.12.18",
+    "ip-address": "^10.2.0",
     "protobufjs": "^7.5.5"
   },
   "devDependencies": {

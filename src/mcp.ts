@@ -17,6 +17,7 @@ import { withSpan } from "./telemetry.js";
 import { createToolRegistry } from "./tools/index.js";
 
 export const SERVER_VERSION = "2.1.1";
+export const SERVER_NAME = "io.github.oaslananka/mcp-ssh-tool";
 
 export class SSHMCPServer {
   private readonly server: Server;
@@ -25,7 +26,7 @@ export class SSHMCPServer {
   constructor(private readonly container: AppContainer) {
     this.server = new Server(
       {
-        name: "ssh-mcp-server",
+        name: SERVER_NAME,
         version: SERVER_VERSION,
       },
       {

@@ -4,17 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, for example v2.1.0"
+        description: "Release version, for example v2.1.1"
         required: true
+      publish:
+        description: "Set to true only for the approved live release run"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
       approval:
-        description: "Type APPROVE_RELEASE to publish"
+        description: "Type APPROVE_RELEASE only when publish=true"
         required: true
+        default: "DRY_RUN"
 
 permissions:
-  attestations: write
-  artifact-metadata: write
-  contents: write
-  id-token: write
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -26,12 +32,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  publish:
-    name: npm, MCP Registry, and GitHub Releases
-    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && inputs.approval == 'APPROVE_RELEASE' }}
+  validate:
+    name: Release dry-run validation
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: npm-production
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    outputs:
+      package_file: ${{ steps.pack.outputs.package_file }}
+      package_name: ${{ steps.metadata.outputs.package_name }}
+      package_version: ${{ steps.metadata.outputs.package_version }}
+      server_name: ${{ steps.metadata.outputs.server_name }}
+      npm_already_published: ${{ steps.npm_status.outputs.already_published }}
+      registry_already_published: ${{ steps.registry_status.outputs.already_published }}
     steps:
       - uses: actions/checkout@v5
         with:
@@ -40,69 +54,52 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24.14.1
-          cache: npm
-          cache-dependency-path: package-lock.json
+          package-manager-cache: false
           registry-url: https://registry.npmjs.org
 
       - name: Use pinned npm
         run: node scripts/use-ci-npm.mjs
 
-      - name: Install Doppler CLI
-        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
-
-      - name: Validate Doppler inventory
-        env:
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-        run: bash scripts/verify-doppler-secrets.sh
-
       - name: Install
         run: npm ci
 
       - name: Validate requested version
+        id: metadata
         env:
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
+          PKG_NAME="$(node -p "require('./package.json').name")"
           PKG_VER="$(node -p "require('./package.json').version")"
+          SERVER_NAME="$(node -p "require('./server.json').name")"
           if [ "$RELEASE_VERSION" != "v${PKG_VER}" ]; then
             echo "Requested version $RELEASE_VERSION does not match package.json v${PKG_VER}."
             exit 1
           fi
+          echo "package_name=${PKG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "package_version=${PKG_VER}" >> "$GITHUB_OUTPUT"
+          echo "server_name=${SERVER_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Verify release quality
-        run: npm run check
-
-      - name: Generate SBOM and package
-        id: pack
+      - name: Check npm publication state
+        id: npm_status
         run: |
-          mkdir -p artifacts
-          npm sbom --sbom-format=cyclonedx > artifacts/sbom.cdx.json
-          PACKAGE_FILE=$(npm pack --pack-destination artifacts --json | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d)[0].filename));")
-          sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
-          echo "package_file=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
-
-      - name: Attest package artifact
-        uses: actions/attest@v4
-        with:
-          subject-path: artifacts/${{ steps.pack.outputs.package_file }}
-
-      - name: Attest SBOM
-        uses: actions/attest@v4
-        with:
-          subject-path: artifacts/${{ steps.pack.outputs.package_file }}
-          sbom-path: artifacts/sbom.cdx.json
-
-      - name: Publish to npm with trusted publishing
-        env:
-          PACKAGE_FILE: ${{ steps.pack.outputs.package_file }}
-        run: |
-          unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
-          npm publish "./artifacts/${PACKAGE_FILE}" --access public
+          set -euo pipefail
+          PKG_NAME="${{ steps.metadata.outputs.package_name }}"
+          PKG_VER="${{ steps.metadata.outputs.package_version }}"
+          if npm view "${PKG_NAME}@${PKG_VER}" version --silent >/dev/null 2>&1; then
+            echo "${PKG_NAME}@${PKG_VER} already exists on npm."
+            echo "already_published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "${PKG_NAME}@${PKG_VER} is not published on npm."
+            echo "already_published=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Check MCP Registry publication state
         id: registry_status
         run: |
-          SERVER_NAME="$(node -p "require('./server.json').name")"
-          PKG_VER="$(node -p "require('./package.json').version")"
+          set -euo pipefail
+          SERVER_NAME="${{ steps.metadata.outputs.server_name }}"
+          PKG_VER="${{ steps.metadata.outputs.package_version }}"
           SERVER_ID="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$SERVER_NAME")"
           LATEST_VER="$(
             curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers/${SERVER_ID}/versions/latest" \
@@ -112,23 +109,146 @@ jobs:
             echo "${SERVER_NAME}@${PKG_VER} already exists in the MCP Registry."
             echo "already_published=true" >> "$GITHUB_OUTPUT"
           else
+            echo "${SERVER_NAME}@${PKG_VER} is not the MCP Registry latest version."
             echo "already_published=false" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Verify release quality
+        run: npm run check
+
+      - name: Generate SBOM and package
+        id: pack
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          npm sbom --sbom-format=cyclonedx > artifacts/sbom.cdx.json
+          PACKAGE_FILE=$(npm pack --pack-destination artifacts --json | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d)[0].filename));")
+          sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
+          sha256sum artifacts/sbom.cdx.json > artifacts/sbom.cdx.json.sha256
+          echo "package_file=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
+
+      - name: Validate npm dry-run publish
+        env:
+          PACKAGE_FILE: ${{ steps.pack.outputs.package_file }}
+        run: npm publish "./artifacts/${PACKAGE_FILE}" --access public --dry-run
+
+      - name: Install pinned MCP Registry publisher
+        run: bash scripts/install-mcp-publisher.sh
+
+      - name: Validate MCP Registry payload locally
+        run: |
+          set -euo pipefail
+          ./mcp-publisher --help >/dev/null
+          node scripts/validate-mcp-metadata.mjs
+          echo "MCP Registry dry-run payload:"
+          node -e "const s=require('./server.json'); console.log(JSON.stringify({name:s.name, version:s.version, repository:s.repository, packages:s.packages}, null, 2));"
+
+      - name: Upload release verification artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-verification-${{ inputs.version }}
+          path: artifacts/*
+          if-no-files-found: error
+
+      - name: Stop before live publish by default
+        if: ${{ inputs.publish != 'true' }}
+        run: echo "Dry-run complete. Live publish job is skipped because publish=false."
+
+  publish:
+    name: Live npm, MCP Registry, and GitHub Release
+    needs: validate
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && inputs.publish == 'true' && inputs.approval == 'APPROVE_RELEASE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm-production
+    permissions:
+      attestations: write
+      artifact-metadata: write
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24.14.1
+          package-manager-cache: false
+          registry-url: https://registry.npmjs.org
+
+      - name: Use pinned npm
+        run: node scripts/use-ci-npm.mjs
+
+      - name: Install
+        run: npm ci
+
+      - name: Download release verification artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: release-verification-${{ inputs.version }}
+          path: artifacts
+
+      - name: Attest package artifact
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/${{ needs.validate.outputs.package_file }}
+
+      - name: Attest SBOM
+        uses: actions/attest@v4
+        with:
+          subject-path: artifacts/${{ needs.validate.outputs.package_file }}
+          sbom-path: artifacts/sbom.cdx.json
+
+      - name: Publish to npm with trusted publishing
+        if: ${{ needs.validate.outputs.npm_already_published != 'true' }}
+        env:
+          PACKAGE_FILE: ${{ needs.validate.outputs.package_file }}
+        run: |
+          set -euo pipefail
+          unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
+          npm publish "./artifacts/${PACKAGE_FILE}" --access public
+
+      - name: Confirm npm publication
+        run: |
+          set -euo pipefail
+          npm view "${{ needs.validate.outputs.package_name }}@${{ needs.validate.outputs.package_version }}" version --silent
+
+      - name: Install pinned MCP Registry publisher
+        if: ${{ needs.validate.outputs.registry_already_published != 'true' }}
+        run: bash scripts/install-mcp-publisher.sh
+
+      - name: Install Doppler CLI
+        if: ${{ needs.validate.outputs.registry_already_published != 'true' }}
+        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
+
       - name: Publish MCP Registry metadata
-        if: ${{ steps.registry_status.outputs.already_published != 'true' }}
+        if: ${{ needs.validate.outputs.registry_already_published != 'true' }}
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" | tar xz mcp-publisher
-          doppler run -- bash -c "./mcp-publisher login github -token \"\$DOPPLER_GITHUB_SERVICE_TOKEN\""
+          set -euo pipefail
+          doppler run -- bash -c "./mcp-publisher login github --token \"\$DOPPLER_GITHUB_SERVICE_TOKEN\""
           ./mcp-publisher publish
+
+      - name: Confirm MCP Registry publication
+        run: |
+          set -euo pipefail
+          SERVER_NAME="${{ needs.validate.outputs.server_name }}"
+          PKG_VER="${{ needs.validate.outputs.package_version }}"
+          SERVER_ID="$(node -e "console.log(encodeURIComponent(process.argv[1]))" "$SERVER_NAME")"
+          LATEST_VER="$(
+            curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers/${SERVER_ID}/versions/latest" \
+              | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d).server?.version ?? ''));"
+          )"
+          test "$LATEST_VER" = "$PKG_VER"
 
       - name: Create organization GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_VERSION: ${{ inputs.version }}
         run: |
+          set -euo pipefail
           if gh release view "$RELEASE_VERSION" --repo oaslananka-lab/mcp-ssh-tool >/dev/null 2>&1; then
             gh release upload "$RELEASE_VERSION" artifacts/* --repo oaslananka-lab/mcp-ssh-tool --clobber
           else
@@ -139,23 +259,3 @@ jobs:
               --title "mcp-ssh-tool $RELEASE_VERSION" \
               --generate-notes
           fi
-
-      - name: Mirror release metadata and assets to canonical repository
-        env:
-          DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
-          RELEASE_VERSION: ${{ inputs.version }}
-        run: |
-          if curl -fsSI "https://github.com/oaslananka/mcp-ssh-tool/releases/tag/${RELEASE_VERSION}" >/dev/null; then
-            echo "Canonical release ${RELEASE_VERSION} already exists; skipping mirror."
-            exit 0
-          fi
-          doppler run -- bash <<'BASH'
-          set -euo pipefail
-          export GH_TOKEN="$DOPPLER_GITHUB_SERVICE_TOKEN"
-          gh release create "$RELEASE_VERSION" \
-            artifacts/* \
-            --repo oaslananka/mcp-ssh-tool \
-            --target "$GITHUB_SHA" \
-            --title "mcp-ssh-tool $RELEASE_VERSION" \
-            --generate-notes
-          BASH
