@@ -1,4 +1,4 @@
-name: Mirror Personal Showcase
+name: Mirror Personal Source Backfill
 
 on:
   push:
@@ -6,6 +6,7 @@ on:
       - main
     tags:
       - "v*.*.*"
+      - "mcp-ssh-tool-v*"
   workflow_dispatch:
     inputs:
       dry_run:
@@ -34,7 +35,7 @@ on:
           - tags
           - main-and-tags
       approval:
-        description: "Type MIRROR_CANONICAL_TO_PERSONAL only for force_mirror=true"
+        description: "Type MIRROR_AUTOMATION_TO_SOURCE only for force_mirror=true"
         required: true
         default: "DRY_RUN"
         type: string
@@ -52,7 +53,7 @@ defaults:
 
 jobs:
   mirror:
-    name: Mirror org main and release tags to personal showcase
+    name: Backfill org release refs to personal source
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 12
@@ -70,7 +71,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${PERSONAL_REPO_PUSH_TOKEN:-}" ]; then
-            echo "PERSONAL_REPO_PUSH_TOKEN is not configured; skipping personal showcase mirror."
+            echo "PERSONAL_REPO_PUSH_TOKEN is not configured; skipping personal source backfill."
             echo "enabled=false" >> "$GITHUB_OUTPUT"
             exit 0
           fi
@@ -97,8 +98,8 @@ jobs:
           esac
 
           if [[ "$FORCE_MIRROR" == "true" ]]; then
-            if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" || "$APPROVAL" != "MIRROR_CANONICAL_TO_PERSONAL" ]]; then
-              echo "force_mirror=true requires workflow_dispatch and approval=MIRROR_CANONICAL_TO_PERSONAL."
+            if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" || "$APPROVAL" != "MIRROR_AUTOMATION_TO_SOURCE" ]]; then
+              echo "force_mirror=true requires workflow_dispatch and approval=MIRROR_AUTOMATION_TO_SOURCE."
               exit 1
             fi
           fi
@@ -125,7 +126,7 @@ jobs:
             fi
 
             if [[ "$personal_main" == "$org_main" ]]; then
-              echo "PLAN: personal/main already matches canonical main (${org_main})."
+              echo "PLAN: personal/main already matches org automation main (${org_main})."
               return
             fi
 
@@ -143,21 +144,29 @@ jobs:
               return
             fi
 
-            echo "Personal showcase main diverges from canonical. Run mirror-personal.yml with force_mirror=true, ref_scope=main, approval=MIRROR_CANONICAL_TO_PERSONAL."
+            echo "Personal source main diverges from org automation main. Run mirror-personal.yml with force_mirror=true, ref_scope=main, approval=MIRROR_AUTOMATION_TO_SOURCE."
             exit 1
           }
 
           mirror_tags() {
             local personal_refs tag_list
             personal_refs="$(mktemp)"
-            if ! git ls-remote --tags personal "refs/tags/v*.*.*" | grep -v '\^{}' > "$personal_refs"; then
+            if ! {
+              git ls-remote --tags personal "refs/tags/v*.*.*"
+              git ls-remote --tags personal "refs/tags/mcp-ssh-tool-v*"
+            } | grep -v '\^{}' | sort -u > "$personal_refs"; then
               : > "$personal_refs"
             fi
 
             tag_list_file="${RUNNER_TEMP}/local-tags.txt"
-            if ! git tag -l "v*.*.*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' > "$tag_list_file"; then
-              : > "$tag_list_file"
+            : > "$tag_list_file"
+            if git tag -l "v*.*.*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' >> "$tag_list_file"; then
+              :
             fi
+            if git tag -l "mcp-ssh-tool-v*" | grep -E '^mcp-ssh-tool-v[0-9]+\.[0-9]+\.[0-9]+$' >> "$tag_list_file"; then
+              :
+            fi
+            sort -u "$tag_list_file" -o "$tag_list_file"
             tag_list="$(cat "$tag_list_file")"
 
             while IFS= read -r tag; do
@@ -173,7 +182,7 @@ jobs:
               fi
 
               if [[ "$personal_tag" == "$org_tag" ]]; then
-                echo "PLAN: personal tag ${tag} already matches canonical (${org_tag})."
+                echo "PLAN: personal tag ${tag} already matches org automation tag (${org_tag})."
                 continue
               fi
 
@@ -185,14 +194,14 @@ jobs:
                 continue
               fi
 
-              echo "Personal showcase tag ${tag} diverges from canonical. Run mirror-personal.yml with force_mirror=true, ref_scope=tags, approval=MIRROR_CANONICAL_TO_PERSONAL."
+              echo "Personal source tag ${tag} diverges from org automation tag. Run mirror-personal.yml with force_mirror=true, ref_scope=tags, approval=MIRROR_AUTOMATION_TO_SOURCE."
               exit 1
             done <<< "$tag_list"
 
             while IFS=$'\t' read -r sha ref; do
               tag="${ref#refs/tags/}"
               if ! git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
-                echo "ADVISORY: personal showcase has extra tag ${tag} (${sha}); this workflow never deletes tags automatically."
+                echo "ADVISORY: personal source has extra tag ${tag} (${sha}); this workflow never deletes tags automatically."
               fi
             done < "$personal_refs"
           }
@@ -211,7 +220,7 @@ jobs:
           esac
 
           if [[ "$DRY_RUN" == "true" ]]; then
-            echo "Dry-run mirror completed. No personal repository refs were changed."
+            echo "Dry-run backfill completed. No personal repository refs were changed."
           else
-            echo "Personal showcase mirror update completed from the organization repository."
+            echo "Personal source backfill completed from the organization automation repository."
           fi

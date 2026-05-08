@@ -1,6 +1,6 @@
 # Release Procedure
 
-The organization repository `https://github.com/oaslananka-lab/mcp-ssh-tool` is the only release authority. The personal repository is a showcase mirror and is not used for release decisions.
+The personal repository `https://github.com/oaslananka/mcp-ssh-tool` is the source repository. The organization repository `https://github.com/oaslananka-lab/mcp-ssh-tool` is the only release authority because GitHub Actions, attestations, and trusted publish checks run there.
 
 ## Pre-Release Checks
 
@@ -55,7 +55,7 @@ The MCP server name remains `io.github.oaslananka/mcp-ssh-tool` because the serv
 npm view mcp-ssh-tool version repository homepage bugs dist-tags --json
 npm view mcp-ssh-tool@<version> dist.integrity dist.tarball --json
 npx -y mcp-ssh-tool@<version> --version
-gh release view v<version> --repo oaslananka-lab/mcp-ssh-tool
+gh release view <package-name>-v<version> --repo oaslananka-lab/mcp-ssh-tool
 curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.oaslananka%2Fmcp-ssh-tool/versions/latest"
 ```
 

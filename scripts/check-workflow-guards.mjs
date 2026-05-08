@@ -114,9 +114,9 @@ for (const filePath of readWorkflowFiles()) {
 
   if (
     relativePath.endsWith("mirror-source.yml") ||
-    relativePath.endsWith("sync-from-canonical.yml")
+    relativePath.endsWith("sync-from-personal.yml")
   ) {
-    errors.push(`${relativePath}: personal-to-org sync workflow must be removed`);
+    errors.push(`${relativePath}: personal-to-org workflow sync must be removed`);
   }
 
   if (content.includes("github.repository_owner")) {
@@ -127,8 +127,8 @@ for (const filePath of readWorkflowFiles()) {
     errors.push(`${relativePath}: personal-repo job guard is not allowed`);
   }
 
-  if (content.includes("git remote add canonical https://github.com/oaslananka/mcp-ssh-tool.git")) {
-    errors.push(`${relativePath}: personal-to-org canonical remote is not allowed`);
+  if (content.includes("git remote add source https://github.com/oaslananka/mcp-ssh-tool.git")) {
+    errors.push(`${relativePath}: personal-to-org source remote is not allowed in workflows`);
   }
 
   for (const job of findJobBlocks(content)) {

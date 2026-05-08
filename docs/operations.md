@@ -2,18 +2,18 @@
 
 ## Repository Operations
 
-- Canonical source and release boundary: `https://github.com/oaslananka-lab/mcp-ssh-tool`
-- Personal showcase mirror: `https://github.com/oaslananka/mcp-ssh-tool`
-- Local remotes may differ by checkout; push PR branches to the org remote.
+- Source repository and local `origin`: `https://github.com/oaslananka/mcp-ssh-tool`
+- CI/CD, release, and security boundary: `https://github.com/oaslananka-lab/mcp-ssh-tool`
+- Push the same reviewed branch content to the org remote for GitHub Actions verification.
 
-Create release hardening branches from org `main`:
+Create maintenance branches from synchronized `main`, then publish them to the org remote for checks:
 
 ```bash
 git switch -c chore/v2.1.2-hardening
 git push -u lab chore/v2.1.2-hardening
 ```
 
-The personal mirror is updated only by `mirror-personal.yml`, which defaults to dry-run and mirrors org `main` plus `v*.*.*` tags.
+Personal-repo Actions are intentionally disabled. Org workflows are repository-guarded, and `mirror-personal.yml` backfills org release results to the personal source repository.
 
 ## Runtime Operations
 

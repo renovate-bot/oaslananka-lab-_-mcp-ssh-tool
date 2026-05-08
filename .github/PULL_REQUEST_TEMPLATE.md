@@ -31,7 +31,7 @@ Brief description of changes.
 - [ ] I have updated the documentation
 - [ ] My changes don't introduce new warnings
 - [ ] Release notes and version files are left to release-please (if applicable)
-- [ ] This PR does not trigger npm, MCP Registry, GHCR, GitHub Release, ChatGPT app publish, or personal mirror force workflows
+- [ ] This PR does not trigger npm, MCP Registry, GHCR, GitHub Release, ChatGPT app publish, or personal source force-backfill workflows
 - [ ] SSH strict host-key, policy, redaction, and HTTP auth/origin defaults remain secure
 
 ## Related Issues

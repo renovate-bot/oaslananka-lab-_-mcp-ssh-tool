@@ -2,7 +2,7 @@
 
 ## Ownership
 
-The maintainer owns releases, branch protection, Doppler secret inventory, npm trusted publishing, and MCP Registry metadata. Canonical source and automation both live in `oaslananka-lab/mcp-ssh-tool`; `oaslananka/mcp-ssh-tool` is a showcase mirror only.
+The maintainer owns releases, branch protection, Doppler secret inventory, npm trusted publishing, and MCP Registry metadata. Source history lives in `oaslananka/mcp-ssh-tool`; GitHub Actions, release, security scanning, and publish authority live in `oaslananka-lab/mcp-ssh-tool`.
 
 ## Cadence
 

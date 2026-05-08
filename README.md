@@ -228,13 +228,13 @@ Local quality gates are layered:
 
 ## CI/CD Ownership
 
-The organization repository `https://github.com/oaslananka-lab/mcp-ssh-tool` is the canonical source-of-truth. Automatic CI/CD, supply-chain security checks, trusted npm publishing, MCP Registry publishing, GitHub Releases, Docker image validation, SBOMs, attestations, and release decisions run only from the org repository.
+The personal repository `https://github.com/oaslananka/mcp-ssh-tool` is the source repository. The organization repository `https://github.com/oaslananka-lab/mcp-ssh-tool` is the GitHub Actions, CI/CD, release, security, and provenance boundary.
 
-The personal repository `https://github.com/oaslananka/mcp-ssh-tool` is a showcase mirror only. It must not contain publish workflows or require GitHub Actions for package or registry release authority. If the two repositories ever conflict, the org repository wins.
+Automatic CI/CD, supply-chain security checks, trusted npm publishing, MCP Registry publishing, GitHub Releases, Docker image validation, SBOMs, attestations, and release decisions run only from the org repository. Personal-repo Actions are intentionally not required gates.
 
-The npm package `repository.url` intentionally points at the org repository so npm provenance can verify that the published artifact came from the same GitHub Actions repository that built it.
+The two repositories must stay content-identical for `main`, release tags, releases, labels, milestones, and active collaboration state. Org release-generated refs are backfilled to the personal source repository.
 
-The MCP Registry server name remains `io.github.oaslananka/mcp-ssh-tool` because it is already published and changing it would break existing users. Registry metadata points its repository/source at the org repository where the current official schema permits it.
+The npm package `repository.url` intentionally points at the org automation repository so npm provenance can verify that the published artifact came from the same GitHub Actions repository that built it. The MCP Registry server name remains `io.github.oaslananka/mcp-ssh-tool` because it is already published and changing it would break existing users.
 
 See [docs/ci-cd-topology.md](docs/ci-cd-topology.md) for mirror, release, dry-run, and manual fallback guidance.
 

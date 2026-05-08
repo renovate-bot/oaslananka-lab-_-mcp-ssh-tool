@@ -165,7 +165,7 @@ const FAILURE_CLASSES = {
     releasePublishMustStop: true,
     rootCause: "Release version inputs and repository metadata are inconsistent.",
   },
-  "personal-mirror-branch-divergence": {
+  "personal-source-branch-divergence": {
     autoFixAllowed: false,
     humanApprovalRequired: true,
     patterns: [/personal.*main.*diverge/iu, /branch divergence/iu],
@@ -173,16 +173,16 @@ const FAILURE_CLASSES = {
       "Inspect both refs. Run mirror-personal.yml force mode only with explicit approval and force-with-lease.",
     releasePublishMustStop: false,
     rootCause:
-      "The personal showcase main branch is not a fast-forward target from canonical main.",
+      "The personal source main branch is not a fast-forward target from org automation main.",
   },
-  "personal-mirror-tag-clobber": {
+  "personal-source-tag-clobber": {
     autoFixAllowed: false,
     humanApprovalRequired: true,
-    patterns: [/showcase tag .* diverges/iu, /divergent tag/iu],
+    patterns: [/personal source tag .* diverges/iu, /divergent tag/iu],
     recommendedFix:
       "Do not clobber automatically. Use the documented force_mirror tag flow only after maintainer approval.",
     releasePublishMustStop: false,
-    rootCause: "A personal showcase tag differs from the canonical tag.",
+    rootCause: "A personal source tag differs from the org automation tag.",
   },
   "sigstore/tool-bootstrap conflict": {
     autoFixAllowed: true,

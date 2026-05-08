@@ -39,12 +39,12 @@ assert(
   "publishReady must remain false until live OpenAI app setup is approved",
 );
 assert(
-  readiness.canonicalRepository === "https://github.com/oaslananka-lab/mcp-ssh-tool",
-  "canonicalRepository must point to the org repository",
+  readiness.sourceRepository === "https://github.com/oaslananka/mcp-ssh-tool",
+  "sourceRepository must point to the personal repository",
 );
 assert(
-  readiness.showcaseMirror === "https://github.com/oaslananka/mcp-ssh-tool",
-  "showcaseMirror must point to the personal repository",
+  readiness.automationRepository === "https://github.com/oaslananka-lab/mcp-ssh-tool",
+  "automationRepository must point to the org repository",
 );
 assert(readiness.mcp?.serverName === pkg.mcpName, "mcp.serverName must match package.json mcpName");
 assert(readiness.mcp?.packageName === pkg.name, "mcp.packageName must match package.json name");

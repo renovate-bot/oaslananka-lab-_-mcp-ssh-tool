@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "publishReady": false,
-  "canonicalRepository": "https://github.com/oaslananka-lab/mcp-ssh-tool",
-  "showcaseMirror": "https://github.com/oaslananka/mcp-ssh-tool",
+  "sourceRepository": "https://github.com/oaslananka/mcp-ssh-tool",
+  "automationRepository": "https://github.com/oaslananka-lab/mcp-ssh-tool",
   "supportUrl": "https://github.com/oaslananka-lab/mcp-ssh-tool/issues",
   "securityUrl": "https://github.com/oaslananka-lab/mcp-ssh-tool/security/advisories/new",
   "privacyUrl": "https://github.com/oaslananka-lab/mcp-ssh-tool/blob/main/SECURITY.md",

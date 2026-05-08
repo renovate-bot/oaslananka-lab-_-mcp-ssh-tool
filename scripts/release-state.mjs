@@ -12,8 +12,8 @@ function usage() {
   console.log(`Usage: node scripts/release-state.mjs [options]
 
 Options:
-  --repo owner/name             Canonical GitHub repository. Default: ${DEFAULT_REPO}
-  --personal-repo owner/name    Personal showcase mirror. Default: ${DEFAULT_PERSONAL_REPO}
+  --repo owner/name             Automation GitHub repository. Default: ${DEFAULT_REPO}
+  --personal-repo owner/name    Personal source repository. Default: ${DEFAULT_PERSONAL_REPO}
   --offline                     Skip npm, MCP Registry, GitHub, and mirror network checks.
   --json                        Print machine-readable JSON.
   --help                        Show this help.
@@ -168,8 +168,8 @@ async function inspectMcpRegistry(serverName, version, offline) {
   }
 }
 
-function inspectGit(version, repo, personalRepo, offline) {
-  const tag = `v${version}`;
+function inspectGit(version, repo, personalRepo, offline, packageName) {
+  const tag = `${packageName}-v${version}`;
   const tagCheck = run("git", ["rev-parse", "-q", "--verify", `refs/tags/${tag}`]);
   const head = run("git", ["rev-parse", "HEAD"]);
   const release = offline
@@ -193,12 +193,12 @@ function inspectGit(version, repo, personalRepo, offline) {
       ]);
 
   return {
-    canonicalHead: head.ok ? head.stdout : null,
+    automationHead: head.ok ? head.stdout : null,
     githubRelease:
       !offline && release.ok
         ? { checked: true, exists: true, payload: JSON.parse(release.stdout) }
         : { checked: !offline, exists: false, error: release.stderr || undefined },
-    personalMirror:
+    personalSource:
       !offline && personal.ok
         ? { checked: true, refs: personal.stdout.split(/\r?\n/u).filter(Boolean) }
         : { checked: !offline, error: personal.stderr || undefined },
@@ -246,10 +246,10 @@ function deriveState({ git, mcpRegistry, npmState, versions }) {
     currentState = "github-release-published";
   }
   if (
-    git.personalMirror.checked &&
-    git.personalMirror.refs.some((ref) => ref.endsWith(`refs/tags/${git.tag}`))
+    git.personalSource.checked &&
+    git.personalSource.refs.some((ref) => ref.endsWith(`refs/tags/${git.tag}`))
   ) {
-    currentState = "personal-mirror-synced";
+    currentState = "personal-source-synced";
   }
 
   let nextSafeCommand =
@@ -305,7 +305,13 @@ async function main() {
     inspectNpm(versions.packageName, version, options.offline),
     inspectMcpRegistry(versions.serverName, version, options.offline),
   ]);
-  const git = inspectGit(version, options.repo, options.personalRepo, options.offline);
+  const git = inspectGit(
+    version,
+    options.repo,
+    options.personalRepo,
+    options.offline,
+    versions.packageName,
+  );
   const derived = deriveState({ git, mcpRegistry, npmState, versions });
   const result = {
     ...derived,

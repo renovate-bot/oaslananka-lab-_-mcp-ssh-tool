@@ -6,8 +6,8 @@ Protect `main` in `oaslananka-lab/mcp-ssh-tool` with the org workflows as requir
 
 - `Fast Lint and Metadata / Workflow and Metadata Lint`
 - `CI / Quality Gates`
-- `CI / Unit Tests (Node 22.22.2)`
-- `CI / Unit Tests (Node 24.14.1)`
+- `CI / Unit Tests (Node 22)`
+- `CI / Unit Tests (Node 24)`
 - `CI / SSH Integration`
 - `CI / Build, SBOM, and Pack`
 - `CI / Docker Smoke`
@@ -29,6 +29,6 @@ Enable merge queue if it is used by the repository. Required-check workflows inc
 - Restrict who can approve the `npm-production` environment.
 - Do not allow bypass for the final publish workflow except repository administrators.
 
-## Showcase Mirror
+## Source And Automation Boundary
 
-The personal repository `oaslananka/mcp-ssh-tool` is a showcase mirror. It is updated from the org repository by `mirror-personal.yml`; do not require personal-repo Actions as branch protection or release gates.
+The personal repository `oaslananka/mcp-ssh-tool` is the source repository and local `origin`. GitHub Actions are intentionally disabled there. The organization repository `oaslananka-lab/mcp-ssh-tool` is the CI/CD, release, security-scan, and required-check boundary; do not require personal-repo Actions as branch protection or release gates.

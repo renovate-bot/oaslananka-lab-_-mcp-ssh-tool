@@ -17,10 +17,10 @@ The release control plane tracks these states:
 - `mcp-registry-updated`
 - `docker-ghcr-published`
 - `github-release-published`
-- `personal-mirror-synced`
+- `personal-source-synced`
 - `post-release-smoke-success`
 
-The current script infers local and live state from package metadata, local tags, npm, MCP Registry, GitHub Release, and personal mirror refs. It is intentionally conservative: if a state cannot be proven, it reports the blocker instead of assuming publish safety.
+The current script infers local and live state from package metadata, local tags, npm, MCP Registry, GitHub Release, and personal source refs. It is intentionally conservative: if a state cannot be proven, it reports the blocker instead of assuming publish safety.
 
 ## Inspected Sources
 
@@ -35,11 +35,11 @@ Local metadata:
 
 Live and remote surfaces when not run with `--offline`:
 
-- local Git tag `v<version>`
+- local Git tag `<package-name>-v<version>`
 - GitHub Release in `oaslananka-lab/mcp-ssh-tool`
 - npm package status
 - MCP Registry latest version and status
-- personal showcase main/tag refs
+- personal source main/tag refs
 
 ## Output Contract
 

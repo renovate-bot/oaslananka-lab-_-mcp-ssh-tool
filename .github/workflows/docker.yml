@@ -9,6 +9,7 @@ on:
       - main
     tags:
       - "v*.*.*"
+      - "mcp-ssh-tool-v*"
   workflow_dispatch:
 
 permissions:
@@ -46,7 +47,7 @@ jobs:
 
   publish-ghcr:
     name: Publish GHCR image
-    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && github.event_name == 'push' && github.ref_type == 'tag' && (startsWith(github.ref_name, 'v') || startsWith(github.ref_name, 'mcp-ssh-tool-v')) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs:
@@ -64,8 +65,8 @@ jobs:
         run: |
           set -euo pipefail
           VERSION_TAG="${GITHUB_REF_NAME}"
-          if ! echo "$VERSION_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "release tag must be a semver tag like v2.1.1."
+          if ! echo "$VERSION_TAG" | grep -Eq '^(v|mcp-ssh-tool-v)[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "release tag must be v2.1.1 or mcp-ssh-tool-v2.1.1."
             exit 1
           fi
           git rev-parse -q --verify "refs/tags/${VERSION_TAG}" >/dev/null
@@ -80,7 +81,18 @@ jobs:
         run: |
           set -euo pipefail
           VERSION_TAG="${GITHUB_REF_NAME}"
-          VERSION="${VERSION_TAG#v}"
+          case "$VERSION_TAG" in
+            v*)
+              VERSION="${VERSION_TAG#v}"
+              ;;
+            mcp-ssh-tool-v*)
+              VERSION="${VERSION_TAG#mcp-ssh-tool-v}"
+              ;;
+            *)
+              echo "unsupported release tag: ${VERSION_TAG}"
+              exit 1
+              ;;
+          esac
           docker build \
             --build-arg VCS_REF="$(git rev-list -n 1 "$VERSION_TAG")" \
             --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \

@@ -1,6 +1,6 @@
 # Publishing
 
-Publishing authority lives only in `https://github.com/oaslananka-lab/mcp-ssh-tool`.
+Source history lives in `https://github.com/oaslananka/mcp-ssh-tool`. Publishing authority lives only in `https://github.com/oaslananka-lab/mcp-ssh-tool`.
 
 ## Distribution Channels
 
@@ -10,7 +10,7 @@ Publishing authority lives only in `https://github.com/oaslananka-lab/mcp-ssh-to
 | MCP Registry server `io.github.oaslananka/mcp-ssh-tool` | Published and active | Release metadata only; registry publish remains separate until official publisher automation is re-enabled |
 | GitHub Releases | Org only | Org `release.yml` |
 | GHCR image | Optional semver tag publish only | Org `docker.yml` |
-| Personal repository | Showcase mirror only | Org `mirror-personal.yml` |
+| Personal repository | Source repository; Actions disabled | Org `mirror-personal.yml` backfills release refs |
 | ChatGPT app | Readiness scaffold only | No publish workflow |
 
 ## Manual Gates
@@ -29,7 +29,7 @@ Manual version inputs, manual tags, and manual changelog edits are not release p
 
 ## Never Publish From
 
-- the personal showcase repository
+- the personal repository Actions runtime
 - fork pull requests
 - untrusted `pull_request_target` code
 - dependency update automation

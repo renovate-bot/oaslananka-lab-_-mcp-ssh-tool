@@ -1,7 +1,7 @@
 # Repository Operations Control Plane
 
-This repository is operated from `https://github.com/oaslananka-lab/mcp-ssh-tool`.
-`https://github.com/oaslananka/mcp-ssh-tool` is a showcase mirror only and is never a release authority.
+Source history lives in `https://github.com/oaslananka/mcp-ssh-tool`.
+GitHub Actions, release, security scanning, and publish authority live in `https://github.com/oaslananka-lab/mcp-ssh-tool`.
 
 ## Current Workflow Inventory
 
@@ -19,7 +19,7 @@ Release workflows:
 
 Advisory and maintenance workflows:
 
-- `mirror-personal.yml`: org-to-personal main and `v*.*.*` tag mirror.
+- `mirror-personal.yml`: org-to-personal `main`, `v*.*.*`, and `mcp-ssh-tool-v*` release tag backfill.
 - `actions-maintenance.yml`: manual run classification, safe reruns, and superseded-run cleanup.
 
 ## Gate Classes
@@ -39,7 +39,7 @@ Advisory gates:
 - optional Docker smoke
 - optional integration/e2e
 - ChatGPT app readiness validator while publishing remains unconfigured
-- personal showcase mirror
+- personal source backfill
 
 Release authority gates:
 

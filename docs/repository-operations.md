@@ -1,13 +1,13 @@
 # Repository Operations
 
-## Canonical Model
+## Source And Automation Model
 
-- Canonical repository: `https://github.com/oaslananka-lab/mcp-ssh-tool`
-- Personal showcase mirror: `https://github.com/oaslananka/mcp-ssh-tool`
+- Source repository: `https://github.com/oaslananka/mcp-ssh-tool`
+- Automation repository: `https://github.com/oaslananka-lab/mcp-ssh-tool`
 - npm package: `mcp-ssh-tool`
 - MCP server name: `io.github.oaslananka/mcp-ssh-tool`
 
-The org repository owns source, PRs, CI, security scanning, releases, package publication, registry publication, attestations, SBOMs, and Docker validation. The personal repository is a mirror/showcase only.
+The personal repository is the source repository and local `origin`. The org repository owns GitHub Actions execution, PR verification, security scanning, releases, package publication, registry publication, attestations, SBOMs, and Docker validation. Keep the two repositories synchronized; personal-repo Actions are not required gates.
 
 ## Routine Maintainer Commands
 

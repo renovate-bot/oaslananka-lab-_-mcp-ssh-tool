@@ -1,23 +1,23 @@
-# Personal Showcase Mirror
+# Personal Source Backfill
 
-`mirror-personal.yml` mirrors canonical org refs to the personal showcase repository:
+`mirror-personal.yml` backfills release-generated org refs to the personal source repository:
 
-- canonical: `https://github.com/oaslananka-lab/mcp-ssh-tool`
-- showcase mirror: `https://github.com/oaslananka/mcp-ssh-tool`
+- source: `https://github.com/oaslananka/mcp-ssh-tool`
+- automation boundary: `https://github.com/oaslananka-lab/mcp-ssh-tool`
 
-The mirror is advisory. It is not an npm, MCP Registry, GitHub Release, GHCR, or ChatGPT app release authority.
+The personal repository remains the source repository. The org repository runs GitHub Actions, release-please, attestations, and publish checks because personal-repo Actions are intentionally disabled.
 
 ## Automatic Mode
 
-On canonical `main` pushes and `v*.*.*` tag pushes, the workflow:
+On org `main` pushes and release tag pushes matching `v*.*.*` or `mcp-ssh-tool-v*`, the workflow:
 
 - preflights personal `main`
 - fast-forwards personal `main` only when safe
-- pushes missing `v*.*.*` tags
+- pushes missing release tags
 - reports extra personal tags without deleting them
 - refuses divergent branch or tag rewrites
 
-Mirror failure must not be treated as a release authority failure. The org repository remains authoritative.
+Backfill failure means the two repositories are no longer identical and must be audited before force repair. Do not rewrite personal refs without an exact printed ref plan.
 
 ## Manual Dry Run
 
@@ -37,14 +37,14 @@ gh workflow run mirror-personal.yml \
 When a personal tag diverges, the workflow fails with:
 
 ```text
-Personal showcase tag <tag> diverges from canonical. Run mirror-personal.yml with force_mirror=true, ref_scope=tags, tag_name=<tag>, approval=MIRROR_CANONICAL_TO_PERSONAL.
+Personal source tag <tag> diverges from org automation tag. Run mirror-personal.yml with force_mirror=true, ref_scope=tags, approval=MIRROR_AUTOMATION_TO_SOURCE.
 ```
 
 Force repair requires:
 
 - `workflow_dispatch`
 - `force_mirror=true`
-- `approval=MIRROR_CANONICAL_TO_PERSONAL`
+- `approval=MIRROR_AUTOMATION_TO_SOURCE`
 - `--force-with-lease`
 - an exact printed ref plan
 
@@ -52,4 +52,4 @@ The workflow never deletes tags and never force-pushes without explicit maintain
 
 ## Required Secret
 
-`PERSONAL_REPO_PUSH_TOKEN` must allow pushing to the personal showcase repository. The token must never be printed and is not used by release or publish workflows.
+`PERSONAL_REPO_PUSH_TOKEN` must allow pushing to the personal source repository. The token must never be printed and is not used by release or publish workflows.
