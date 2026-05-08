@@ -17,7 +17,7 @@ import { withSpan } from "./telemetry.js";
 import { createToolRegistry } from "./tools/index.js";
 import type { ToolProfile } from "./connector-profile.js";
 
-export const SERVER_VERSION = "2.2.3"; // x-release-please-version
+export const SERVER_VERSION = "2.2.4"; // x-release-please-version
 export const SERVER_NAME = "io.github.oaslananka/mcp-ssh-tool";
 
 export class SSHMCPServer {
