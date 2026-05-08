@@ -130,7 +130,27 @@ jobs:
           VERSION: ${{ needs.release.outputs.version }}
         run: |
           set -euo pipefail
-          pnpm view "mcp-ssh-tool@${VERSION}" version --silent
+          unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
+          for attempt in {1..18}; do
+            if published_version="$(pnpm view "mcp-ssh-tool@${VERSION}" version --silent 2>npm-view.err)"; then
+              if [[ "$published_version" == "$VERSION" ]]; then
+                echo "Verified mcp-ssh-tool@${VERSION} on npm."
+                exit 0
+              fi
+              echo "npm returned version '${published_version}', expected '${VERSION}'." >&2
+            else
+              echo "npm view did not find mcp-ssh-tool@${VERSION} on attempt ${attempt}." >&2
+              if [[ -s npm-view.err ]]; then
+                cat npm-view.err >&2
+              fi
+            fi
+
+            if [[ "$attempt" == "18" ]]; then
+              echo "mcp-ssh-tool@${VERSION} was not verifiable on npm after retries." >&2
+              exit 1
+            fi
+            sleep 10
+          done
 
       - name: Record npm publish skip
         if: ${{ vars.AUTO_RELEASE_PUBLISH != 'true' }}

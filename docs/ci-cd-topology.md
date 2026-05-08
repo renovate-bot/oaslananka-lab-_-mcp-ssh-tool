@@ -43,7 +43,7 @@ Do not commit `.npmrc` tokens or print secrets in workflow logs.
 
 | Variable | Expected value |
 |----------|----------------|
-| `AUTO_RELEASE_PUBLISH` | `false` |
+| `AUTO_RELEASE_PUBLISH` | `true` |
 | `AUTO_RELEASE_TARGET` | `dry-run` |
 | `NPM_PACKAGE_NAME` | `mcp-ssh-tool` |
 | `MCP_SERVER_NAME` | `io.github.oaslananka/mcp-ssh-tool` |
