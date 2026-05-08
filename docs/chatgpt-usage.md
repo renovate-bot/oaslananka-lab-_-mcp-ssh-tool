@@ -7,7 +7,7 @@ Bu kılavuz, MCP SSH Tool'u ChatGPT Desktop uygulaması ile nasıl kullanacağı
 ### Otomatik Kurulum (Önerilen)
 
 ```bash
-npm run setup:chatgpt
+pnpm run setup:chatgpt
 ```
 
 Bu komut, ChatGPT Desktop yapılandırma dosyasını otomatik olarak günceller.
@@ -111,5 +111,5 @@ Oturum süresi dolmuş olabilir. Yeni bir bağlantı kurun.
 
 ### ChatGPT MCP araçlarını görmüyor
 1. ChatGPT Desktop'ı tamamen kapatın
-2. `npm run setup:chatgpt` komutunu çalıştırın
+2. `pnpm run setup:chatgpt` komutunu çalıştırın
 3. ChatGPT Desktop'ı yeniden başlatın

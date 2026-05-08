@@ -2,8 +2,6 @@
 
 Brief description of changes.
 
-Agent-created PRs should start as draft. Mark ready for review only after cheap control-plane gates pass and actionable review threads are clear.
-
 ## Type of Change
 
 - [ ] Bug fix (non-breaking change fixing an issue)
@@ -19,10 +17,10 @@ Agent-created PRs should start as draft. Mark ready for review only after cheap 
 
 ## Testing
 
-- [ ] Unit tests pass (`npm test`)
-- [ ] Build succeeds (`npm run build`)
-- [ ] Linter passes (`npm run lint`)
-- [ ] Metadata validators pass (`npm run validate:mcp-metadata && npm run validate:chatgpt-app`)
+- [ ] Unit tests pass (`pnpm test`)
+- [ ] Build succeeds (`pnpm run build`)
+- [ ] Linter passes (`pnpm run lint`)
+- [ ] Metadata validators pass (`pnpm run validate:mcp-metadata && pnpm run validate:chatgpt-app`)
 - [ ] Review-thread gate is clean or remaining threads are intentionally unresolved
 - [ ] Manual testing completed
 
@@ -32,7 +30,7 @@ Agent-created PRs should start as draft. Mark ready for review only after cheap 
 - [ ] I have added tests for my changes
 - [ ] I have updated the documentation
 - [ ] My changes don't introduce new warnings
-- [ ] I have updated CHANGELOG.md (if applicable)
+- [ ] Release notes and version files are left to release-please (if applicable)
 - [ ] This PR does not trigger npm, MCP Registry, GHCR, GitHub Release, ChatGPT app publish, or personal mirror force workflows
 - [ ] SSH strict host-key, policy, redaction, and HTTP auth/origin defaults remain secure
 

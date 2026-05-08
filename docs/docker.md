@@ -13,7 +13,7 @@ docker run --rm mcp-ssh-tool:local --help
 The production image:
 
 - uses Node 24 Alpine
-- installs dependencies with `npm ci`
+- installs dependencies with `pnpm install --frozen-lockfile`
 - copies only built `dist`, runtime dependencies, docs, and registry metadata
 - runs as the `node` user
 - defaults to MCP stdio

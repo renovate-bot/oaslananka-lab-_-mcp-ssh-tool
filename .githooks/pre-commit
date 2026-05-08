@@ -1,5 +1,5 @@
 #!/bin/sh
 set -eu
 
-npm run hook:pre-commit
+pnpm run hook:pre-commit
 node scripts/run-precommit-hooks.mjs --hook-stage pre-commit

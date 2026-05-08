@@ -14,7 +14,6 @@ function usage() {
 Options:
   --repo owner/name             Canonical GitHub repository. Default: ${DEFAULT_REPO}
   --personal-repo owner/name    Personal showcase mirror. Default: ${DEFAULT_PERSONAL_REPO}
-  --version x.y.z               Version to inspect. Default: package.json version.
   --offline                     Skip npm, MCP Registry, GitHub, and mirror network checks.
   --json                        Print machine-readable JSON.
   --help                        Show this help.
@@ -29,7 +28,6 @@ function parseArgs(argv) {
     offline: false,
     personalRepo: DEFAULT_PERSONAL_REPO,
     repo: DEFAULT_REPO,
-    version: undefined,
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -45,9 +43,6 @@ function parseArgs(argv) {
         break;
       case "--personal-repo":
         options.personalRepo = argv[++index];
-        break;
-      case "--version":
-        options.version = argv[++index];
         break;
       case "--offline":
         options.offline = true;
@@ -73,13 +68,11 @@ function readText(relativePath) {
 
 function run(command, args) {
   const executable =
-    process.platform === "win32" && command === "npm"
-      ? "npm.cmd"
-      : process.platform === "win32" && command === "gh"
-        ? "gh.exe"
-        : process.platform === "win32" && command === "git"
-          ? "git.exe"
-          : command;
+    process.platform === "win32" && command === "gh"
+      ? "gh.exe"
+      : process.platform === "win32" && command === "git"
+        ? "git.exe"
+        : command;
   const result = spawnSync(executable, args, {
     cwd: rootDir,
     encoding: "utf8",
@@ -96,7 +89,6 @@ function run(command, args) {
 
 function detectSourceVersion() {
   const pkg = readJson("package.json");
-  const lock = readJson("package-lock.json");
   const server = readJson("server.json");
   const mcp = readJson("mcp.json");
   const registryMcp = readJson("registry/mcp-ssh-tool/mcp.json");
@@ -108,7 +100,6 @@ function detectSourceVersion() {
   return {
     mcpJson: mcp.version,
     packageJson: pkg.version,
-    packageLock: lock.version,
     registryMcp: registryMcp.version,
     serverJson: server.version,
     sourceVersion,
@@ -221,7 +212,6 @@ function deriveState({ git, mcpRegistry, npmState, versions }) {
   const blockers = [];
   const versionValues = [
     versions.packageJson,
-    versions.packageLock,
     versions.serverJson,
     versions.mcpJson,
     versions.registryMcp,
@@ -230,10 +220,6 @@ function deriveState({ git, mcpRegistry, npmState, versions }) {
 
   if (!allEqual(versionValues)) {
     blockers.push("package/server/mcp/registry/source versions drift");
-  }
-
-  if (!git.tagExists) {
-    blockers.push(`tag ${git.tag} does not exist locally`);
   }
 
   if (npmState.checked && npmState.versionPublished) {
@@ -266,13 +252,16 @@ function deriveState({ git, mcpRegistry, npmState, versions }) {
     currentState = "personal-mirror-synced";
   }
 
-  let nextSafeCommand = "Open or update a draft release PR after local validation.";
+  let nextSafeCommand =
+    "Merge a Conventional Commit to main and let release-please open or update the release PR.";
   if (!allEqual(versionValues)) {
-    nextSafeCommand = "npm run sync-version -- --check";
+    nextSafeCommand = "pnpm run sync-version -- --check";
   } else if (!git.tagExists) {
-    nextSafeCommand = "Wait for release PR approval/merge and create the approved tag.";
+    nextSafeCommand =
+      "Wait for release-please to create the release PR; do not create tags manually.";
   } else if (!(npmState.checked && npmState.versionPublished)) {
-    nextSafeCommand = `gh workflow run trusted-publish.yml --repo ${DEFAULT_REPO} --field version=${git.tag} --field publish=false --field approval=DRY_RUN`;
+    nextSafeCommand =
+      "Merge the release-please PR and let release.yml publish from release outputs.";
   } else {
     nextSafeCommand = "No publish command is safe or useful for the inspected version.";
   }
@@ -311,7 +300,7 @@ function renderHuman(result) {
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const versions = detectSourceVersion();
-  const version = options.version ?? versions.packageJson;
+  const version = versions.packageJson;
   const [npmState, mcpRegistry] = await Promise.all([
     inspectNpm(versions.packageName, version, options.offline),
     inspectMcpRegistry(versions.serverName, version, options.offline),

@@ -4,7 +4,7 @@
   "mcpName": "io.github.oaslananka/mcp-ssh-tool",
   "description": "Model Context Protocol (MCP) SSH client server for remote automation",
   "type": "module",
-  "packageManager": "npm@11.12.1",
+  "packageManager": "pnpm@11.0.8",
   "main": "dist/index.js",
   "exports": "./dist/index.js",
   "types": "dist/index.d.ts",
@@ -42,31 +42,29 @@
     "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.{mjs,cjs}\" \".github/workflows/*.{yml,yaml}\" \".azure/pipelines/*.{yml,yaml}\" \".gitlab-ci.yml\"",
     "format:staged": "node scripts/run-staged-checks.mjs",
     "prepare": "node scripts/setup-git-hooks.mjs",
-    "prepublishOnly": "npm run check",
-    "e2e:docker": "docker compose up -d ssh-server && npm run test:e2e",
-    "integration:docker": "docker compose up -d ssh-server && npm run test:integration",
-    "docs": "npx typedoc --options typedoc.json",
+    "prepublishOnly": "pnpm run check",
+    "e2e:docker": "docker compose up -d ssh-server && pnpm run test:e2e",
+    "integration:docker": "docker compose up -d ssh-server && pnpm run test:integration",
+    "docs": "pnpm exec typedoc --options typedoc.json",
     "start:http": "node dist/server-http.js",
     "setup:chatgpt": "node scripts/setup-chatgpt.mjs",
     "sync-version": "node scripts/sync-version.mjs",
-    "version": "node scripts/sync-version.mjs && git add mcp.json server.json registry/mcp-ssh-tool/mcp.json src/mcp.ts",
     "validate:mcp-metadata": "node scripts/validate-mcp-metadata.mjs",
     "validate:chatgpt-app": "node scripts/validate-chatgpt-app.mjs",
     "validate:claude-connector": "node scripts/validate-claude-connector.mjs",
     "review:threads": "node scripts/check-review-threads.mjs",
     "release:state": "node scripts/release-state.mjs",
-    "audit": "npm audit --audit-level=moderate",
+    "audit": "pnpm audit --audit-level moderate",
     "licenses:check": "node scripts/check-licenses.mjs",
     "pack:check": "node scripts/check-package-contents.mjs",
-    "check:quality": "npm run format:check && npm run lint && npm run typecheck && npm run audit && npm run licenses:check",
-    "check:package": "npm run build && npm run sync-version -- --check && npm run validate:mcp-metadata && npm run validate:chatgpt-app && npm run validate:claude-connector && npm run pack:check",
-    "check:push": "npm run format:check && npm run lint && npm run typecheck && npm test",
-    "check": "npm run check:quality && npm run test:coverage && npm run check:package",
-    "hook:pre-commit": "npm run format:staged",
-    "hook:pre-push": "npm run check:push",
-    "changeset": "changeset",
-    "changeset:version": "changeset version && npm run sync-version",
-    "changeset:publish": "changeset publish"
+    "check:quality": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run audit && pnpm run licenses:check",
+    "check:package": "pnpm run build && pnpm run sync-version -- --check && pnpm run validate:mcp-metadata && pnpm run validate:chatgpt-app && pnpm run validate:claude-connector && pnpm run pack:check",
+    "check:push": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm test",
+    "check": "pnpm run check:quality && pnpm run test:coverage && pnpm run check:package",
+    "hook:pre-commit": "pnpm run format:staged",
+    "hook:pre-push": "pnpm run check:push",
+    "release:dry-run": "node scripts/validate-release-please.mjs && node scripts/release-state.mjs --offline --json && pnpm run check:package",
+    "sbom": "node scripts/generate-sbom.mjs"
   },
   "keywords": [
     "mcp",
@@ -95,7 +93,7 @@
   },
   "engines": {
     "node": "^22.22.2 || ^24.14.1",
-    "npm": "^10.9.2 || ^11.12.1"
+    "pnpm": "^11.0.8"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -115,7 +113,6 @@
     "protobufjs": "^7.5.5"
   },
   "devDependencies": {
-    "@changesets/cli": "^2.31.0",
     "@commitlint/cli": "^19.8.1",
     "@commitlint/config-conventional": "^19.8.1",
     "@jest/globals": "^30.3.0",
@@ -127,7 +124,8 @@
     "jest": "^30.3.0",
     "prettier": "^3.8.3",
     "ts-jest": "^29.4.9",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "release-please": "^17.6.0"
   },
   "jest": {
     "preset": "ts-jest/presets/default-esm",

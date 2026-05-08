@@ -9,26 +9,28 @@ stages:
   - package
 
 default:
-  image: node:24.14.1-bookworm
+  image: node:24.14.1-bookworm@sha256:80fc934952c8f1b2b4d39907af7211f8a9fff1a4c2cf673fb49099292c251cec
   cache:
     key:
       files:
-        - package-lock.json
+        - pnpm-lock.yaml
     paths:
-      - .npm/
+      - .pnpm-store/
   before_script:
-    - node scripts/use-ci-npm.mjs
-    - npm ci --cache .npm --prefer-offline
+    - corepack enable
+    - corepack prepare pnpm@11.0.8 --activate
+    - pnpm config set store-dir .pnpm-store
+    - pnpm install --frozen-lockfile
 
 quality:
   stage: quality
   script:
-    - npm run check:quality
+    - pnpm run check:quality
 
 unit:
   stage: test
   script:
-    - npm run test:coverage
+    - pnpm run test:coverage
   artifacts:
     when: always
     paths:
@@ -39,10 +41,10 @@ unit:
 package:
   stage: package
   script:
-    - npm run check:package
+    - pnpm run check:package
     - mkdir -p artifacts
-    - npm sbom --sbom-format=spdx > artifacts/sbom.spdx.json
-    - PACKAGE_FILE=$(npm pack --pack-destination artifacts --json | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d)[0].filename));")
+    - pnpm run sbom
+    - PACKAGE_FILE=$(pnpm pack --pack-destination artifacts --json | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => { const p = JSON.parse(d); const r = Array.isArray(p) ? p[0]: p; console.log(r.filename || r.name || r.path); });")
     - sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
   artifacts:
     paths:

@@ -7,8 +7,7 @@
 `corepack enable` writes shims under the Node.js installation directory. If it fails without elevation, continue with:
 
 ```powershell
-node scripts/use-ci-npm.mjs
-npm ci
+pnpm install --frozen-lockfile
 ```
 
 ### Trusted publish fails with a provenance repository mismatch
@@ -23,7 +22,7 @@ npm provenance validates the package metadata repository against the GitHub Acti
 
 ### MCP Registry still shows an old version
 
-The registry is updated by `trusted-publish.yml` after npm publication. Verify the workflow ran the pinned `scripts/install-mcp-publisher.sh` path, authenticated with `mcp-publisher login github --token "$DOPPLER_GITHUB_SERVICE_TOKEN"` through Doppler, ran `mcp-publisher publish`, and then checked the latest endpoint:
+Registry publishing is intentionally separate from npm trusted publishing until the official publisher path is re-enabled for the existing namespace. Verify the package release first, then check the latest endpoint:
 
 ```bash
 curl https://registry.modelcontextprotocol.io/v0.1/servers/io.github.oaslananka%2Fmcp-ssh-tool/versions/latest
@@ -124,20 +123,20 @@ Prefer Streamable HTTP at `/mcp`.
 Unit tests:
 
 ```bash
-npm test
+pnpm test
 ```
 
 Live SSH suites are opt-in:
 
 ```bash
-RUN_SSH_INTEGRATION=1 npm run test:integration
-RUN_SSH_E2E=1 npm run test:e2e
+RUN_SSH_INTEGRATION=1 pnpm run test:integration
+RUN_SSH_E2E=1 pnpm run test:e2e
 ```
 
 Docker fixture:
 
 ```bash
-npm run e2e:docker
+pnpm run e2e:docker
 ```
 
 ## Security Audit Fails
@@ -145,7 +144,7 @@ npm run e2e:docker
 Run:
 
 ```bash
-npm audit --audit-level=moderate
+pnpm audit --audit-level moderate
 ```
 
 Upgrade direct dependencies first. For transitive advisories, prefer dependency updates or overrides with a short security rationale in the release notes.

@@ -1,59 +1,43 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 
-const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-const lockfilePath = path.join(rootDir, "package-lock.json");
-const forbiddenLicensePattern = /(^|[^A-Z])(?:AGPL|GPL)(?:[^A-Z]|$)/i;
+const forbiddenLicensePattern = /(^|[^A-Z])(?:AGPL|GPL)(?:[^A-Z]|$)/iu;
+const pnpmArgs = ["licenses", "list", "--prod", "--json"];
 
-function readJson(filePath) {
-  return JSON.parse(readFileSync(filePath, "utf8"));
-}
+function runPnpm(args) {
+  const command = `corepack pnpm ${args.join(" ")}`;
 
-function packageNameFromLockPath(lockPath, packageJson) {
-  if (packageJson.name) {
-    return packageJson.name;
+  if (process.platform === "win32") {
+    return execFileSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", command], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
   }
 
-  return lockPath.replace(/^node_modules\//u, "");
-}
-
-function normalizeLicense(packageJson) {
-  const license = packageJson.license ?? packageJson.licenses;
-  if (Array.isArray(license)) {
-    return license
-      .map((entry) => (typeof entry === "string" ? entry : entry?.type))
-      .filter(Boolean)
-      .join(" OR ");
-  }
-  if (typeof license === "object" && license?.type) {
-    return license.type;
-  }
-  return String(license ?? "UNLICENSED");
-}
-
-const lockfile = readJson(lockfilePath);
-const packages = lockfile.packages ?? {};
-const violations = [];
-let checked = 0;
-
-for (const [lockPath, metadata] of Object.entries(packages)) {
-  if (!lockPath.startsWith("node_modules/") || metadata.dev === true) {
-    continue;
-  }
-
-  const packageJsonPath = path.join(rootDir, lockPath, "package.json");
-  let packageJson;
   try {
-    packageJson = readJson(packageJsonPath);
+    return execFileSync("corepack", ["pnpm", ...args], {
+      encoding: "utf8",
+      windowsHide: true,
+    });
   } catch {
-    continue;
+    return execFileSync("pnpm", args, {
+      encoding: "utf8",
+      windowsHide: true,
+    });
   }
+}
 
-  checked++;
-  const name = packageNameFromLockPath(lockPath, packageJson);
-  const version = packageJson.version ?? metadata.version ?? "unknown";
-  const license = normalizeLicense(packageJson);
+const rawOutput = runPnpm(pnpmArgs);
+
+const payload = JSON.parse(rawOutput);
+const entries = Array.isArray(payload) ? payload : Object.values(payload).flat();
+const violations = [];
+
+for (const entry of entries) {
+  const name = entry.name ?? entry.packageName ?? entry.package ?? "unknown";
+  const version = Array.isArray(entry.versions)
+    ? entry.versions.join(",")
+    : (entry.version ?? "unknown");
+  const license = String(entry.license ?? entry.licenses ?? "UNLICENSED");
 
   if (forbiddenLicensePattern.test(license)) {
     violations.push(`${name}@${version}: ${license}`);
@@ -68,4 +52,6 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log(`Checked ${checked} production dependency licenses; no GPL/AGPL licenses found.`);
+console.log(
+  `Checked ${entries.length} production dependency licenses; no GPL/AGPL licenses found.`,
+);

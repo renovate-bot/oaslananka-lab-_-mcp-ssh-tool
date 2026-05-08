@@ -13,10 +13,10 @@ The org repository owns source, PRs, CI, security scanning, releases, package pu
 
 ```bash
 git remote -v
-npm ci
-npm run check
-npm audit --audit-level=moderate
-npm pack --dry-run
+pnpm install --frozen-lockfile
+pnpm run check
+pnpm audit --audit-level moderate
+pnpm pack --dry-run
 node scripts/validate-mcp-metadata.mjs
 node scripts/validate-chatgpt-app.mjs
 node scripts/check-workflow-guards.mjs

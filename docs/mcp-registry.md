@@ -16,7 +16,7 @@ Keep this server name. Changing it would break existing users unless the officia
 https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json
 ```
 
-`mcp.json` and `registry/mcp-ssh-tool/mcp.json` are legacy/internal compatibility metadata. They must keep version parity with `server.json`, `package.json`, `package-lock.json`, and `src/mcp.ts`.
+`mcp.json` and `registry/mcp-ssh-tool/mcp.json` are legacy/internal compatibility metadata. They must keep version parity with `server.json`, `package.json`, `pnpm-lock.yaml`, and `src/mcp.ts`.
 
 Run:
 
@@ -38,14 +38,6 @@ The validator checks:
 
 ## Publishing
 
-`trusted-publish.yml` installs pinned `mcp-publisher` `v1.6.0` and verifies the release asset SHA256 before use. Dry-run mode prints the intended payload and does not authenticate or publish.
+Registry metadata stays version-synchronized by `release-please-config.json` and `scripts/validate-mcp-metadata.mjs`. Live MCP Registry publishing remains a separate controlled step until official publisher automation is re-enabled for the existing namespace without manual version input.
 
-The live job publishes only when:
-
-- the workflow runs in `oaslananka-lab/mcp-ssh-tool`
-- `publish=true`
-- `approval=APPROVE_RELEASE`
-- environment approval succeeds
-- the registry does not already report the package version
-
-After publish, the workflow reads the Registry latest endpoint and fails unless the latest server version matches the package version.
+After any registry publish, read the Registry latest endpoint and verify that the latest server version matches the release version.

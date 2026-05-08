@@ -28,11 +28,15 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   quality:
     name: Quality Gates
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -42,22 +46,24 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24.14.1
-          cache: npm
-          cache-dependency-path: package-lock.json
+          package-manager-cache: false
 
-      - name: Use pinned npm
-        run: node scripts/use-ci-npm.mjs
+      - name: Enable pnpm
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.0.8 --activate
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Quality gate parity
-        run: npm run check:quality
+        run: pnpm run check:quality
 
   unit:
     name: Unit Tests (Node ${{ matrix.node }})
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -73,17 +79,19 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: ${{ matrix.node }}
-          cache: npm
-          cache-dependency-path: package-lock.json
+          package-manager-cache: false
 
-      - name: Use pinned npm
-        run: node scripts/use-ci-npm.mjs
+      - name: Enable pnpm
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.0.8 --activate
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Unit coverage
-        run: npm run test:coverage
+        run: pnpm run test:coverage
 
       - name: Upload JUnit results
         if: always()
@@ -128,7 +136,7 @@ jobs:
   integration:
     name: SSH Integration
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -138,20 +146,22 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24.14.1
-          cache: npm
-          cache-dependency-path: package-lock.json
+          package-manager-cache: false
 
-      - name: Use pinned npm
-        run: node scripts/use-ci-npm.mjs
+      - name: Enable pnpm
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.0.8 --activate
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Start SSH fixture
         run: docker compose up -d ssh-server
 
       - name: Run integration tests
-        run: npm run test:integration
+        run: pnpm run test:integration
         env:
           RUN_SSH_INTEGRATION: "1"
           TEST_SSH_HOST: localhost
@@ -174,7 +184,7 @@ jobs:
   package:
     name: Build, SBOM, and Pack
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs:
       - quality
@@ -188,23 +198,29 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version: 24.14.1
-          cache: npm
-          cache-dependency-path: package-lock.json
+          package-manager-cache: false
 
-      - name: Use pinned npm
-        run: node scripts/use-ci-npm.mjs
+      - name: Enable pnpm
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.0.8 --activate
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Package parity
-        run: npm run check:package
+        run: pnpm run check:package
 
       - name: Generate CycloneDX SBOM and package hash
         run: |
+          set -euo pipefail
           mkdir -p artifacts
-          npm sbom --sbom-format=cyclonedx > artifacts/sbom.cdx.json
-          PACKAGE_FILE=$(npm pack --pack-destination artifacts --json | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => console.log(JSON.parse(d)[0].filename));")
+          pnpm run sbom
+          PACKAGE_FILE="$(
+            pnpm pack --pack-destination artifacts --json |
+              node -e "const path = require('node:path'); let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => { const p = JSON.parse(d); const r = Array.isArray(p) ? p[0] : p; console.log(path.basename(r.filename || r.name || r.path)); });"
+          )"
           sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
 
       - name: Upload release verification artifacts
@@ -216,7 +232,7 @@ jobs:
   docker:
     name: Docker Smoke
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs:
       - package

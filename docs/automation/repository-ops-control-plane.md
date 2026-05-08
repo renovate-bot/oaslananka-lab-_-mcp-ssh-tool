@@ -14,15 +14,12 @@ Critical path workflows:
 
 Release workflows:
 
-- `trusted-publish.yml`: manual trusted-publishing release path for npm, MCP Registry, attestations, and GitHub Release.
-- `publish.yml`: manual emergency token fallback only.
-- `docker.yml`: PR Docker smoke and manual/tag-gated GHCR publish.
+- `release.yml`: release-please manifest mode, GitHub Release assets, npm trusted publishing, SBOMs, checksums, and attestations.
+- `docker.yml`: PR Docker smoke and semver tag-gated GHCR publish.
 
 Advisory and maintenance workflows:
 
 - `mirror-personal.yml`: org-to-personal main and `v*.*.*` tag mirror.
-- `jules-ci-autofix.yml`: guarded Jules maintenance for CI failures, dependencies, and approved issues.
-- `agent-review-fix-loop.yml`: guarded Jules repair loop for actionable review threads.
 - `actions-maintenance.yml`: manual run classification, safe reruns, and superseded-run cleanup.
 
 ## Gate Classes
@@ -46,26 +43,21 @@ Advisory gates:
 
 Release authority gates:
 
-- manual workflow dispatch
-- explicit approval input
-- `npm-production` environment approval while npm trusted publishing remains configured there
-- version/tag consistency
-- npm already-published and provenance/trusted-publishing checks
-- MCP Registry dry-run payload validation and already-published checks
+- release-please manifest mode
+- release-please release PR merge
+- release-created output gate
+- npm trusted publishing and provenance checks
 - package tarball, SBOM, SHA256SUMS, and artifact attestations
-- post-publish npm and MCP Registry smoke checks
+- post-publish npm smoke checks
 
-Bot and agent feedback gates:
+Review feedback gates:
 
 - unresolved human review threads
-- actionable bot review threads
-- Sentry, Gemini, Jules, Codex, or other bot comments with security/correctness/release wording
 - GitHub suggestion blocks
-- maintainer `/agent-review-fix` comments or `agent:fix-review` labels
 
 ## Draft-First CI Model
 
-Agent-created PRs start as draft. Draft PRs run cheap control-plane checks only:
+Draft PRs run cheap control-plane checks only:
 
 - `review-thread-gate.yml`
 - `meta.yml`
@@ -90,7 +82,7 @@ Recommended routing:
 - source changes: format, lint, typecheck, unit tests, coverage after ready
 - tests-only: lint, typecheck, targeted tests, coverage after ready
 - MCP metadata changes: `sync-version --check`, `validate:mcp-metadata`, package preflight
-- release/npm/MCP Registry changes: metadata validators, package pack check, release state, dry-run release only by maintainer request
+- release/npm/MCP Registry changes: metadata validators, package pack check, release state, and release-please config validation
 - Docker-only changes: Hadolint and Docker smoke after ready
 - ChatGPT app-only changes: `validate:chatgpt-app`, app security docs
 - SSH policy/security changes: targeted SSH policy and HTTP auth/origin tests, then full coverage after ready
@@ -99,4 +91,4 @@ Recommended routing:
 
 `scripts/classify-gh-failure.mjs` maps failed logs into repository-specific classes and marks whether an automatic fix is allowed, whether human approval is required, and whether release/publish must stop.
 
-Auto-remediation is limited to formatting, lint, metadata drift, version sync drift, docs link drift, safe fixture expectation updates, and workflow upload-folder mistakes. Release identity, npm/MCP Registry auth, environment protection, permissions broadening, SSH safety weakening, HTTP auth/origin weakening, destructive mirror repair, package name changes, and MCP server name changes require human review.
+Release identity, npm/MCP Registry auth, environment protection, permissions broadening, SSH safety weakening, HTTP auth/origin weakening, destructive mirror repair, package name changes, and MCP server name changes require human review.

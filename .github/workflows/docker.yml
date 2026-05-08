@@ -10,23 +10,6 @@ on:
     tags:
       - "v*.*.*"
   workflow_dispatch:
-    inputs:
-      publish:
-        description: "Set to true only for the approved GHCR publish run"
-        required: true
-        default: "false"
-        type: choice
-        options:
-          - "false"
-          - "true"
-      version_tag:
-        description: "Existing release tag to publish, for example v2.1.1"
-        required: false
-        type: string
-      approval:
-        description: "Type APPROVE_CONTAINER_PUBLISH only when publish=true"
-        required: true
-        default: "DRY_RUN"
 
 permissions:
   contents: read
@@ -35,14 +18,18 @@ env:
   IMAGE_NAME: ghcr.io/oaslananka-lab/mcp-ssh-tool
 
 concurrency:
-  group: docker-${{ github.workflow }}-${{ github.ref }}-${{ inputs.version_tag || '' }}
-  cancel-in-progress: true
+  group: docker-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+defaults:
+  run:
+    shell: bash
 
 jobs:
   build:
     name: Build and smoke image
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && (github.event_name != 'pull_request' || github.event.pull_request.draft == false) }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -59,8 +46,8 @@ jobs:
 
   publish-ghcr:
     name: Publish GHCR image
-    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && github.event_name == 'workflow_dispatch' && inputs.publish == 'true' && inputs.approval == 'APPROVE_CONTAINER_PUBLISH' }}
-    runs-on: ubuntu-latest
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' && github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref_name, 'v') }}
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     needs:
       - build
@@ -73,13 +60,12 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Validate requested tag
-        env:
-          VERSION_TAG: ${{ inputs.version_tag }}
+      - name: Validate release tag
         run: |
           set -euo pipefail
+          VERSION_TAG="${GITHUB_REF_NAME}"
           if ! echo "$VERSION_TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            echo "version_tag must be a semver tag like v2.1.1."
+            echo "release tag must be a semver tag like v2.1.1."
             exit 1
           fi
           git rev-parse -q --verify "refs/tags/${VERSION_TAG}" >/dev/null
@@ -91,10 +77,9 @@ jobs:
         run: echo "$GH_TOKEN" | docker login ghcr.io -u "$GHCR_ACTOR" --password-stdin
 
       - name: Build and push image
-        env:
-          VERSION_TAG: ${{ inputs.version_tag }}
         run: |
           set -euo pipefail
+          VERSION_TAG="${GITHUB_REF_NAME}"
           VERSION="${VERSION_TAG#v}"
           docker build \
             --build-arg VCS_REF="$(git rev-list -n 1 "$VERSION_TAG")" \

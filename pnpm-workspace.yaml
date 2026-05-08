@@ -1,0 +1,12 @@
+packages:
+  - .
+
+engineStrict: true
+strictDepBuilds: true
+
+allowBuilds:
+  cpu-features: false
+  libxmljs2: false
+  protobufjs: false
+  ssh2: false
+  unrs-resolver: false

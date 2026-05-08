@@ -1,0 +1,40 @@
+{
+  "release-type": "node",
+  "packages": {
+    ".": {
+      "package-name": "mcp-ssh-tool",
+      "changelog-path": "CHANGELOG.md",
+      "extra-files": [
+        {
+          "type": "json",
+          "path": "mcp.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "server.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "json",
+          "path": "server.json",
+          "jsonpath": "$.packages[0].version"
+        },
+        {
+          "type": "json",
+          "path": "server.json",
+          "jsonpath": "$.packages[1].version"
+        },
+        {
+          "type": "json",
+          "path": "registry/mcp-ssh-tool/mcp.json",
+          "jsonpath": "$.version"
+        },
+        {
+          "type": "generic",
+          "path": "src/mcp.ts"
+        }
+      ]
+    }
+  }
+}

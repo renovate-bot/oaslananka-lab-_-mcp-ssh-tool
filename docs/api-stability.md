@@ -32,10 +32,10 @@ Operational changes must not alter the runtime MCP API unless explicitly called 
 Version metadata must remain synchronized across:
 
 - `package.json`
-- `package-lock.json`
+- `pnpm-lock.yaml`
 - `mcp.json`
 - `server.json`
 - `registry/mcp-ssh-tool/mcp.json`
 - `src/mcp.ts`
 
-Use `npm run sync-version` and `npm run sync-version -- --check`.
+Use `pnpm run sync-version` and `pnpm run sync-version -- --check`.

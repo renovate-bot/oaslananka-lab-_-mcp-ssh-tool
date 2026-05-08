@@ -2,7 +2,7 @@
 
 services:
   ssh-server:
-    image: lscr.io/linuxserver/openssh-server:latest
+    image: lscr.io/linuxserver/openssh-server:latest@sha256:792bb9969a6751f9be2dcecdebd166f75c51187628f1be48ac9c9b3776561c16
     container_name: mcp-ssh-test
     environment:
       - PUID=1000
@@ -36,4 +36,4 @@ services:
       - TEST_SSH_PORT=2222
       - TEST_SSH_USER=testuser
       - TEST_SSH_PASS=testpass
-    command: sh -lc "npm run test:e2e && npm run test:integration"
+    command: sh -lc "pnpm run test:e2e && pnpm run test:integration"

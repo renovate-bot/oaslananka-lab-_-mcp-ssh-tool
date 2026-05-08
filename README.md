@@ -30,7 +30,7 @@ npx -y mcp-ssh-tool --version
 Or install globally:
 
 ```bash
-npm install -g mcp-ssh-tool
+pnpm add --global mcp-ssh-tool
 ```
 
 Add a stdio MCP server to your client:
@@ -208,23 +208,23 @@ Deprecated aliases `STRICT_HOST_KEY_CHECKING` and `SSH_MCP_STRICT_HOST_KEY` are 
 Use the exact local runtime from `.nvmrc` / `.node-version`, then run:
 
 ```bash
-npm ci
-npm run check
+pnpm install --frozen-lockfile
+pnpm run check
 ```
 
 Live SSH suites are opt-in:
 
 ```bash
-RUN_SSH_INTEGRATION=1 npm run test:integration
-RUN_SSH_E2E=1 npm run test:e2e
+RUN_SSH_INTEGRATION=1 pnpm run test:integration
+RUN_SSH_E2E=1 pnpm run test:e2e
 ```
 
 Local quality gates are layered:
 
 - `pre-commit`: formats staged files and lints staged TypeScript only
-- `pre-push`: runs `npm run check:push`
-- `task hooks`: runs tracked npm hooks plus `.pre-commit-config.yaml` hooks when `pre-commit` is installed
-- manual/full parity: `task ci` or `npm run check`
+- `pre-push`: runs `pnpm run check:push`
+- `task hooks`: runs tracked pnpm hooks plus `.pre-commit-config.yaml` hooks when `pre-commit` is installed
+- manual/full parity: `task ci` or `pnpm run check`
 
 ## CI/CD Ownership
 
@@ -255,7 +255,6 @@ See [docs/ci-cd-topology.md](docs/ci-cd-topology.md) for mirror, release, dry-ru
 - [docs/repository-operations.md](docs/repository-operations.md)
 - [docs/docker.md](docs/docker.md)
 - [docs/client-configs.md](docs/client-configs.md)
-- [docs/automation/jules.md](docs/automation/jules.md)
 - [docs/security/release-integrity.md](docs/security/release-integrity.md)
 - [docs/security/chatgpt-app-threat-model.md](docs/security/chatgpt-app-threat-model.md)
 - [docs/security/ssh-threat-model.md](docs/security/ssh-threat-model.md)

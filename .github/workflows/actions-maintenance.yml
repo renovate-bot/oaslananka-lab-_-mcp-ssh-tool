@@ -40,11 +40,15 @@ concurrency:
   group: actions-maintenance-${{ inputs.mode }}-${{ inputs.pr_number || inputs.run_id || github.run_id }}
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   maintain:
     name: Manual Actions maintenance
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -77,7 +81,9 @@ jobs:
                 echo "run_id is required for classify-run."
                 exit 1
               fi
-              gh run view "$RUN_ID" --repo "$REPO" --log-failed > .actions-maintenance/failed.log || true
+              if ! gh run view "$RUN_ID" --repo "$REPO" --log-failed > .actions-maintenance/failed.log; then
+                : > .actions-maintenance/failed.log
+              fi
               node scripts/classify-gh-failure.mjs --log-file .actions-maintenance/failed.log --json
               ;;
 
@@ -117,7 +123,9 @@ jobs:
                 echo "run_id is required for rerun-infra-only."
                 exit 1
               fi
-              gh run view "$RUN_ID" --repo "$REPO" --log-failed > .actions-maintenance/failed.log || true
+              if ! gh run view "$RUN_ID" --repo "$REPO" --log-failed > .actions-maintenance/failed.log; then
+                : > .actions-maintenance/failed.log
+              fi
               node scripts/classify-gh-failure.mjs \
                 --log-file .actions-maintenance/failed.log \
                 --json > .actions-maintenance/classification.json

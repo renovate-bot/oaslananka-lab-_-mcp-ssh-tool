@@ -27,7 +27,7 @@ The current script infers local and live state from package metadata, local tags
 Local metadata:
 
 - `package.json`
-- `package-lock.json`
+- `pnpm-lock.yaml`
 - `server.json`
 - `mcp.json`
 - `registry/mcp-ssh-tool/mcp.json`
@@ -60,4 +60,4 @@ node scripts/release-state.mjs --repo oaslananka-lab/mcp-ssh-tool
 node scripts/release-state.mjs --offline --json
 ```
 
-For this project, live publishing remains manual and approval-gated through `trusted-publish.yml`; agents may run dry-run validation only when explicitly requested.
+For this project, live publishing is driven by release-please outputs in `release.yml`; local use of this script is read-only release-state inspection.

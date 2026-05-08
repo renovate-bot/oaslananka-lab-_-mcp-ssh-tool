@@ -7,7 +7,7 @@ Thank you for your interest in contributing to mcp-ssh-tool! This document provi
 ### Prerequisites
 
 - Node.js 24.14.1 LTS for local development (`.nvmrc` and `.node-version` are included)
-- npm 11.12.1
+- pnpm 11.0.8 through Corepack
 - Git
 
 ### Getting Started
@@ -23,19 +23,21 @@ Thank you for your interest in contributing to mcp-ssh-tool! This document provi
 3. Install dependencies:
 
    ```bash
-   npm ci
+   corepack enable
+   corepack prepare pnpm@11.0.8 --activate
+   pnpm install --frozen-lockfile
    ```
 
 4. Build the project:
 
    ```bash
-   npm run build
+   pnpm run build
    ```
 
 5. Run tests:
 
    ```bash
-   npm test
+   pnpm test
    ```
 
 ## Development Workflow
@@ -89,14 +91,14 @@ docs(readme): update installation instructions
 
 - Write tests for new features
 - Maintain test coverage
-- Run `npm run check` before opening a PR
-- Run `npm run test:integration` when the change affects SSH runtime behavior or MCP server wiring
+- Run `pnpm run check` before opening a PR
+- Run `pnpm run test:integration` when the change affects SSH runtime behavior or MCP server wiring
 
 ### Local Quality Gates
 
 - `pre-commit` runs fast staged-file checks: Prettier plus staged TypeScript linting
-- `pre-push` runs `npm run check:push`
-- `npm run check` is the local equivalent of the primary CI quality/package verification path
+- `pre-push` runs `pnpm run check:push`
+- `pnpm run check` is the local equivalent of the primary CI quality/package verification path
 
 ### Pull Request Process
 
@@ -118,22 +120,17 @@ Primary automated CI/CD runs in the GitHub org mirror `oaslananka-lab/mcp-ssh-to
 
 ## Releasing
 
-Primary release automation runs from the GitHub org mirror after validation.
+Primary release automation runs from the GitHub org repository with release-please manifest mode.
 
-1. Create a changeset for user-visible work: `npm run changeset`
-2. When preparing a release, apply pending changesets: `npm run changeset:version`
-3. Review the generated version bump, then run `npm run sync-version`
-4. Run quality gates locally: `npm run check`
-5. If SSH/runtime behavior changed, run `npm run test:integration`
-6. Commit and push the versioned changes.
-7. Create and push a tag: `git tag v2.0.0 && git push origin v2.0.0`
+1. Use Conventional Commits for user-visible changes.
+2. Run quality gates locally: `pnpm run check`.
+3. If SSH/runtime behavior changed, run `pnpm run test:integration`.
+4. Merge the change to `main`.
+5. Let `release.yml` create or update the release-please PR.
+6. Merge the generated release PR after CI passes.
+7. Let the release workflow create the tag, GitHub Release, SBOM, checksums, attestations, and npm publish from release-please outputs.
 
-Azure publish validation checks:
-
-- `package.json`, `mcp.json`, `server.json`, registry metadata, and `src/mcp.ts` version consistency
-- test and build health before publish
-
-GitHub Actions `publish.yml` should be used only if the org trusted-publish path is unavailable and a manual hotfix publish is required.
+Do not create release tags, edit `CHANGELOG.md`, or bump versions manually.
 
 ## Project Structure
 
@@ -157,7 +154,7 @@ mcp-ssh-tool/
 ├── test/
 │   ├── unit/           # Unit tests
 │   └── e2e/            # E2E tests
-└── dist/               # Compiled output
+└── dist/               # Generated locally; not committed
 ```
 
 ## Adding New Features

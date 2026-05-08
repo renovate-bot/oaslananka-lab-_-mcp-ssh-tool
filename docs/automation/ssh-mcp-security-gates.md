@@ -24,21 +24,21 @@ The SSH/MCP surface is high-impact. CI and review automation must treat these ch
 Run targeted unit tests when these surfaces change:
 
 ```bash
-npm test -- --runTestsByPath test/unit/policy.test.ts
-npm test -- --runTestsByPath test/unit/http-security.test.ts
-npm test -- --runTestsByPath test/unit/transfer.test.ts
-npm test -- --runTestsByPath test/unit/logging.test.ts
-npm test -- --runTestsByPath test/unit/tools/registry.test.ts
-npm test -- --runTestsByPath test/unit/resources.test.ts
-npm test -- --runTestsByPath test/unit/prompts.test.ts
+pnpm test -- --runTestsByPath test/unit/policy.test.ts
+pnpm test -- --runTestsByPath test/unit/http-security.test.ts
+pnpm test -- --runTestsByPath test/unit/transfer.test.ts
+pnpm test -- --runTestsByPath test/unit/logging.test.ts
+pnpm test -- --runTestsByPath test/unit/tools/registry.test.ts
+pnpm test -- --runTestsByPath test/unit/resources.test.ts
+pnpm test -- --runTestsByPath test/unit/prompts.test.ts
 ```
 
 Run the full gate before marking a PR ready:
 
 ```bash
-npm run check
+pnpm run check
 ```
 
 ## Automation Boundary
 
-Agents may add tests that preserve these guarantees. Agents may not weaken host-key verification, path policy, sudo/destructive policy, HTTP bearer auth, allowed origins, redaction, or tool annotations without maintainer review.
+Contributors may add tests that preserve these guarantees. Changes must not weaken host-key verification, path policy, sudo/destructive policy, HTTP bearer auth, allowed origins, redaction, or tool annotations without maintainer review.

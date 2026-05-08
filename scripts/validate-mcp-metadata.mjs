@@ -40,7 +40,6 @@ function assert(condition, message) {
 }
 
 const pkg = readJson("package.json");
-const lock = readJson("package-lock.json");
 const server = readJson("server.json");
 const mcp = readJson("mcp.json");
 const registryMcp = readJson("registry/mcp-ssh-tool/mcp.json");
@@ -53,10 +52,10 @@ assertEqual("package.json homepage", pkg.homepage, `${EXPECTED.orgRepo}#readme`)
 assertEqual("package.json bugs.url", pkg.bugs?.url, `${EXPECTED.orgRepo}/issues`);
 assertEqual("package.json main", pkg.main, "dist/index.js");
 assertEqual("package.json bin.mcp-ssh-tool", pkg.bin?.["mcp-ssh-tool"], "dist/index.js");
-assertEqual("package-lock.json name", lock.name, pkg.name);
-assertEqual("package-lock.json version", lock.version, pkg.version);
-assertEqual("package-lock.json packages[''].name", lock.packages?.[""]?.name, pkg.name);
-assertEqual("package-lock.json packages[''].version", lock.packages?.[""]?.version, pkg.version);
+assert(
+  /^pnpm@\d+\.\d+\.\d+(?:[+-][0-9A-Za-z.-]+)?$/u.test(pkg.packageManager ?? ""),
+  `package.json packageManager must pin pnpm, found ${JSON.stringify(pkg.packageManager)}`,
+);
 
 assertEqual("server.json $schema", server.$schema, EXPECTED.serverSchema);
 assertEqual("server.json name", server.name, pkg.mcpName);

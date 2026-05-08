@@ -5,7 +5,6 @@ const ACTIONABLE_PATTERNS = [
   /\bBug:/iu,
   /\bPotential issue:/iu,
   /\bSuggested Fix\b/iu,
-  /\bPrompt for AI Agent\b/iu,
   /\bsecurity\b/iu,
   /\bvulnerability\b/iu,
   /\bcorrectness\b/iu,
@@ -50,8 +49,6 @@ const BOT_LOGIN_PATTERNS = [
   /^renovate/iu,
   /^sentry/iu,
   /^gemini/iu,
-  /^jules/iu,
-  /^codex/iu,
   /^coderabbit/iu,
   /^socket/iu,
 ];

@@ -7,6 +7,23 @@ const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..")
 const workflowDir = path.join(rootDir, ".github", "workflows");
 const requiredGuard = "github.repository == 'oaslananka-lab/mcp-ssh-tool'";
 const errors = [];
+const forbiddenContent = [
+  [/\bubuntu-latest\b/u, "use a pinned runner image instead of ubuntu-latest"],
+  [/\bpull_request_target\b/u, "pull_request_target is not allowed"],
+  [/\bpackage-lock\.json\b/u, "package-lock.json is not used; use pnpm-lock.yaml"],
+  [/\bnpm\s+ci\b/u, "npm ci is not allowed; use pnpm install --frozen-lockfile"],
+  [/\bnpm\s+install\b/u, "npm install is not allowed; use pnpm"],
+  [/\bnpm\s+run\b/u, "npm run is not allowed in workflows; use pnpm run"],
+  [/\bnpm\s+test\b/u, "npm test is not allowed in workflows; use pnpm test"],
+  [/\buse-ci-npm\b/u, "use-ci-npm has been removed"],
+  [/\bpython3\s+-m\s+pip\b/u, "pip bootstrap is not allowed in workflows; use uv"],
+  [/\bpip\s+install\b/u, "pip install is not allowed in workflows; use uv"],
+  [/^\s*cache:\s*pnpm\s*$/mu, "setup-node pnpm cache is disabled to avoid missing pnpm bootstrap"],
+  [/^\s*cache-dependency-path:\s*/mu, "setup-node cache-dependency-path is not used"],
+  [/^\s*if:\s*(?:\$\{\{\s*)?true(?:\s*\}\})?\s*$/mu, "business logic must not use if: true"],
+  [/\|\|\s*true/u, "do not hide failures with || true"],
+  [/\|\|\s*:/u, "do not hide failures with || :"],
+];
 
 function readWorkflowFiles() {
   if (!fs.existsSync(workflowDir)) {
@@ -70,6 +87,31 @@ for (const filePath of readWorkflowFiles()) {
   const relativePath = path.relative(rootDir, filePath).replaceAll(path.sep, "/");
   const content = fs.readFileSync(filePath, "utf8");
 
+  for (const [pattern, message] of forbiddenContent) {
+    if (pattern.test(content)) {
+      errors.push(`${relativePath}: ${message}`);
+    }
+  }
+
+  if (!/^permissions:\s*$/mu.test(content)) {
+    errors.push(`${relativePath}: workflow-level permissions must be explicit`);
+  }
+
+  if (!/^concurrency:\s*$/mu.test(content)) {
+    errors.push(`${relativePath}: workflow-level concurrency must be explicit`);
+  }
+
+  for (const match of content.matchAll(/^\s*-?\s*uses:\s*([^\s#]+)(?:\s+#.*)?$/gmu)) {
+    const spec = match[1];
+    if (spec.startsWith("./") || spec.startsWith("docker://")) {
+      continue;
+    }
+    const ref = spec.slice(spec.lastIndexOf("@") + 1);
+    if (!/^[0-9a-f]{40}$/iu.test(ref)) {
+      errors.push(`${relativePath}: action '${spec}' is not pinned to a full commit SHA`);
+    }
+  }
+
   if (
     relativePath.endsWith("mirror-source.yml") ||
     relativePath.endsWith("sync-from-canonical.yml")
@@ -90,10 +132,15 @@ for (const filePath of readWorkflowFiles()) {
   }
 
   for (const job of findJobBlocks(content)) {
-    const hasGuard = job.lines.join("\n").includes(requiredGuard);
+    const block = job.lines.join("\n");
+    const hasGuard = block.includes(requiredGuard);
 
     if (!hasGuard) {
       errors.push(`${relativePath}: job '${job.name}' is missing exact org repository guard`);
+    }
+
+    if (!/^\s+timeout-minutes:\s*\d+\s*$/mu.test(block)) {
+      errors.push(`${relativePath}: job '${job.name}' is missing timeout-minutes`);
     }
   }
 }

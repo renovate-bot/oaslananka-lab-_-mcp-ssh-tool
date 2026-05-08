@@ -5,7 +5,7 @@ Claude Web custom connectors use a remotely reachable MCP server URL. Localhost 
 This repository includes a readiness scaffold in `apps/claude/connector-readiness.json`. It is not a production connector submission and it does not publish anything. The validator is:
 
 ```bash
-npm run validate:claude-connector
+pnpm run validate:claude-connector
 ```
 
 ## Required Runtime Profile

@@ -18,7 +18,7 @@ As of the current OpenAI Apps SDK documentation, app submission is a dashboard r
 | Domain verification | Not configured |
 | Widget/component bundle | Not configured |
 | App publish workflow | Not present |
-| Validator | `npm run validate:chatgpt-app` |
+| Validator | `pnpm run validate:chatgpt-app` |
 
 `apps/chatgpt/app-readiness.json` intentionally sets `publishReady` to `false`.
 
@@ -100,7 +100,7 @@ Before setting `publishReady=true`:
 - provide app icon, screenshots, review test prompts, and expected responses
 - verify tool annotations match actual behavior
 - verify no credentials appear in `structuredContent`, `content`, `_meta`, widget state, logs, or audit exports
-- run `npm run validate:chatgpt-app`
+- run `pnpm run validate:chatgpt-app`
 
 If OpenAI publishing requirements change, update this document and the validator before adding publish automation.
 

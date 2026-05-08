@@ -104,7 +104,7 @@ const FAILURE_CLASSES = {
     humanApprovalRequired: false,
     patterns: [/MCP metadata validation failed/iu, /server\.json/iu, /mcp\.json/iu],
     recommendedFix:
-      "Run npm run sync-version -- --check, update metadata consistently, and re-run validate:mcp-metadata.",
+      "Run pnpm run sync-version -- --check, update metadata consistently, and re-run validate:mcp-metadata.",
     releasePublishMustStop: true,
     rootCause:
       "Package, MCP Registry, legacy mcp.json, registry copy, or source constants diverged.",
@@ -161,7 +161,7 @@ const FAILURE_CLASSES = {
     humanApprovalRequired: false,
     patterns: [/version.*does not match/iu, /package-lock\.json version/iu],
     recommendedFix:
-      "Run npm run sync-version and ensure package.json, lockfile, server.json, mcp.json, registry metadata, and src/mcp.ts agree.",
+      "Run pnpm run sync-version and ensure package.json, lockfile, server.json, mcp.json, registry metadata, and src/mcp.ts agree.",
     releasePublishMustStop: true,
     rootCause: "Release version inputs and repository metadata are inconsistent.",
   },
@@ -205,7 +205,7 @@ const FAILURE_CLASSES = {
   "test failure": {
     autoFixAllowed: true,
     humanApprovalRequired: false,
-    patterns: [/FAIL /u, /jest/iu, /npm test/iu],
+    patterns: [/FAIL /u, /jest/iu, /pnpm test/iu],
     recommendedFix:
       "Reproduce the failing test, patch behavior or exact fixture expectations, and avoid broad snapshots unless warranted.",
     releasePublishMustStop: true,
@@ -225,7 +225,7 @@ const FAILURE_CLASSES = {
     humanApprovalRequired: false,
     patterns: [/tsc/iu, /TypeScript/iu, /typecheck/iu],
     recommendedFix:
-      "Run npm run typecheck, fix the typed contract, and avoid suppressions unless the type boundary is intentionally opaque.",
+      "Run pnpm run typecheck, fix the typed contract, and avoid suppressions unless the type boundary is intentionally opaque.",
     releasePublishMustStop: true,
     rootCause: "TypeScript compilation failed.",
   },
@@ -234,7 +234,7 @@ const FAILURE_CLASSES = {
     humanApprovalRequired: false,
     patterns: [/eslint/iu, /lint/iu],
     recommendedFix:
-      "Run npm run lint, apply the minimal style or correctness fix, and avoid disabling rules globally.",
+      "Run pnpm run lint, apply the minimal style or correctness fix, and avoid disabling rules globally.",
     releasePublishMustStop: true,
     rootCause: "ESLint reported a style or static correctness issue.",
   },

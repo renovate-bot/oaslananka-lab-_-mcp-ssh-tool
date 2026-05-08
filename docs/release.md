@@ -4,13 +4,13 @@ The organization repository `https://github.com/oaslananka-lab/mcp-ssh-tool` is 
 
 ## Pre-Release Checks
 
-Run local gates before opening or updating a release PR:
+Run local gates before merging release-relevant changes:
 
 ```bash
-npm ci
-npm run check
-npm audit --audit-level=moderate
-npm pack --dry-run
+pnpm install --frozen-lockfile
+pnpm run check
+pnpm audit --audit-level moderate
+pnpm pack --dry-run
 node scripts/validate-mcp-metadata.mjs
 node scripts/validate-chatgpt-app.mjs
 node scripts/release-state.mjs --offline
@@ -26,75 +26,35 @@ docker run --rm mcp-ssh-tool:local --version
 docker run --rm mcp-ssh-tool:local --help
 ```
 
-## Version Commit
+## Release Automation
 
-Only after org CI/security checks are green, create the release version commit:
+Releases use release-please manifest mode:
 
-```bash
-npm version 2.1.2 --no-git-tag-version
-npm run sync-version
-git add package.json package-lock.json mcp.json server.json registry/mcp-ssh-tool/mcp.json src/mcp.ts CHANGELOG.md
-git commit -m "chore(release): v2.1.2"
-```
+- `release-please-config.json` defines the Node package and extra version files.
+- `.release-please-manifest.json` stores the current released version.
+- Conventional Commit history determines the next version.
+- The release workflow runs on merges to `main`.
+- Release asset and publish jobs run only when release-please reports `release_created == 'true'`.
+
+Do not create tags manually, edit `CHANGELOG.md` by hand, or bump package versions outside a release-please PR.
+
+## Release Flow
+
+1. Merge a Conventional Commit to `main`.
+2. Let `release.yml` open or update the release-please PR.
+3. Review the generated changelog and version updates.
+4. Merge the release-please PR after CI is green.
+5. Let `release.yml` create the GitHub Release, package tarball, CycloneDX SBOM, SHA256 checksum files, artifact attestations, and npm trusted publish.
 
 The MCP server name remains `io.github.oaslananka/mcp-ssh-tool` because the server is already published under that name in the MCP Registry.
-
-## Dry-Run Publish
-
-Agents may run dry-run validation only when asked:
-
-```bash
-gh workflow run trusted-publish.yml \
-  --repo oaslananka-lab/mcp-ssh-tool \
-  --field version=v2.1.2 \
-  --field publish=false \
-  --field approval=DRY_RUN
-```
-
-This does not authenticate to npm, does not publish to npm, does not publish MCP Registry metadata, and does not create a GitHub Release.
-
-Before a dry-run, inspect the read-only release state:
-
-```bash
-node scripts/release-state.mjs --repo oaslananka-lab/mcp-ssh-tool
-```
-
-If the inspected version is already present on npm or active/latest in the MCP Registry, `safe_to_publish` remains false and no live publish command is useful for that version.
-
-## Human Live Publish
-
-Do not trigger this from an agent unless the user explicitly requests live publishing:
-
-```bash
-gh workflow run trusted-publish.yml \
-  --repo oaslananka-lab/mcp-ssh-tool \
-  --field version=v2.1.2 \
-  --field publish=true \
-  --field approval=APPROVE_RELEASE
-```
-
-The live job is guarded by:
-
-- org repository check
-- manual dispatch only
-- `publish=true`
-- exact approval phrase
-- `npm-production` environment approval, kept for compatibility with existing npm trusted publisher configuration
-- npm already-published check
-- MCP Registry already-published check
-- post-publish npm and MCP Registry verification
-
-If npm trusted publishing is reconfigured to use the `release` environment instead of `npm-production`, update the workflow and this document in the same PR.
-
-The personal showcase mirror is advisory after release. A mirror failure does not grant authority to publish from the personal repository and does not justify force-updating personal refs without the `mirror-personal.yml` approval flow.
 
 ## Post-Publish Verification
 
 ```bash
 npm view mcp-ssh-tool version repository homepage bugs dist-tags --json
-npm view mcp-ssh-tool@2.1.2 dist.integrity dist.tarball --json
-npx -y mcp-ssh-tool@2.1.2 --version
-gh release view v2.1.2 --repo oaslananka-lab/mcp-ssh-tool
+npm view mcp-ssh-tool@<version> dist.integrity dist.tarball --json
+npx -y mcp-ssh-tool@<version> --version
+gh release view v<version> --repo oaslananka-lab/mcp-ssh-tool
 curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.oaslananka%2Fmcp-ssh-tool/versions/latest"
 ```
 
@@ -102,13 +62,9 @@ Verify:
 
 - npm latest is the intended version
 - npm provenance is present for trusted-published public releases
-- `server.version` in the MCP Registry latest response is the intended version
-- registry `_meta.status` is `active`
 - GitHub Release assets include the npm tarball, SBOM, and SHA256 files
 - GitHub artifact attestations verify against `oaslananka-lab/mcp-ssh-tool`
 
-## Rollback and Emergency Fallback
+## Rollback
 
-`publish.yml` exists only for emergency token fallback when npm trusted publishing is unavailable. It remains manual, approval-gated, Doppler-backed, and org-only. Prefer fixing trusted publishing over using fallback tokens.
-
-Do not unpublish npm packages except within npm's policy window and only after maintainer approval. Prefer deprecation plus a patched release.
+Do not unpublish npm packages except within npm policy windows and only after maintainer approval. Prefer deprecation plus a patched release.

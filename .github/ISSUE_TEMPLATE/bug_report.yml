@@ -54,6 +54,6 @@ body:
     id: environment
     attributes:
       label: Environment
-      description: Node/npm versions, OS, SSH server type, and relevant policy settings.
+      description: Node/pnpm versions, OS, SSH server type, and relevant policy settings.
     validations:
       required: true

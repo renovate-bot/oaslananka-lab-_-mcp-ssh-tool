@@ -33,10 +33,6 @@ on:
           - main
           - tags
           - main-and-tags
-      tag_name:
-        description: "Optional single v*.*.* tag for tag-only force repair"
-        required: false
-        type: string
       approval:
         description: "Type MIRROR_CANONICAL_TO_PERSONAL only for force_mirror=true"
         required: true
@@ -50,11 +46,15 @@ concurrency:
   group: mirror-personal-${{ github.ref }}
   cancel-in-progress: false
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   mirror:
     name: Mirror org main and release tags to personal showcase
     if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 12
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -85,7 +85,6 @@ jobs:
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
           FORCE_MIRROR: ${{ inputs.force_mirror || 'false' }}
           REF_SCOPE: ${{ inputs.ref_scope || 'main-and-tags' }}
-          TAG_NAME: ${{ inputs.tag_name || '' }}
         run: |
           set -euo pipefail
 
@@ -96,11 +95,6 @@ jobs:
               exit 1
               ;;
           esac
-
-          if [[ -n "$TAG_NAME" && ! "$TAG_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "tag_name must be empty or a v*.*.* semver tag."
-            exit 1
-          fi
 
           if [[ "$FORCE_MIRROR" == "true" ]]; then
             if [[ "$GITHUB_EVENT_NAME" != "workflow_dispatch" || "$APPROVAL" != "MIRROR_CANONICAL_TO_PERSONAL" ]]; then
@@ -156,13 +150,15 @@ jobs:
           mirror_tags() {
             local personal_refs tag_list
             personal_refs="$(mktemp)"
-            git ls-remote --tags personal "refs/tags/v*.*.*" | grep -v '\^{}' > "$personal_refs" || true
-
-            if [[ -n "$TAG_NAME" ]]; then
-              tag_list="$TAG_NAME"
-            else
-              tag_list="$(git tag -l "v*.*.*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+            if ! git ls-remote --tags personal "refs/tags/v*.*.*" | grep -v '\^{}' > "$personal_refs"; then
+              : > "$personal_refs"
             fi
+
+            tag_list_file="${RUNNER_TEMP}/local-tags.txt"
+            if ! git tag -l "v*.*.*" | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' > "$tag_list_file"; then
+              : > "$tag_list_file"
+            fi
+            tag_list="$(cat "$tag_list_file")"
 
             while IFS= read -r tag; do
               [[ -z "$tag" ]] && continue
@@ -189,7 +185,7 @@ jobs:
                 continue
               fi
 
-              echo "Personal showcase tag ${tag} diverges from canonical. Run mirror-personal.yml with force_mirror=true, ref_scope=tags, tag_name=${tag}, approval=MIRROR_CANONICAL_TO_PERSONAL."
+              echo "Personal showcase tag ${tag} diverges from canonical. Run mirror-personal.yml with force_mirror=true, ref_scope=tags, approval=MIRROR_CANONICAL_TO_PERSONAL."
               exit 1
             done <<< "$tag_list"
 

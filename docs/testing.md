@@ -6,24 +6,24 @@ mcp-ssh-tool uses **Jest** with **TypeScript**. Tests are in three layers:
 
 | Layer | Command | Path | Requirements |
 |---|---|---|---|
-| Unit | `npm test` | `test/unit/` | None |
-| Integration | `npm run test:integration` | `test/integration/` | Docker (SSH server) |
-| E2E | `npm run test:e2e` | `test/e2e/` | Docker (SSH server) |
+| Unit | `pnpm test` | `test/unit/` | None |
+| Integration | `pnpm run test:integration` | `test/integration/` | Docker (SSH server) |
+| E2E | `pnpm run test:e2e` | `test/e2e/` | Docker (SSH server) |
 
 ## Running Tests Locally
 
 ```bash
 # Unit tests only (fast, no Docker)
-npm test
+pnpm test
 
 # With coverage
-npm run test:coverage
+pnpm run test:coverage
 
 # Integration (requires Docker)
-npm run integration:docker
+pnpm run integration:docker
 
 # E2E (requires Docker)
-npm run e2e:docker
+pnpm run e2e:docker
 ```
 
 ## Docker SSH Server
@@ -43,9 +43,9 @@ The SSH server config is in `docker-compose.yml`. Test credentials are in
 
 | CI Job | Node | OS |
 |---|---|---|
-| Unit Tests | 22, 24 | ubuntu-latest |
-| Integration | 24 | ubuntu-latest |
-| E2E | 24 | ubuntu-latest |
+| Unit Tests | 22, 24 | ubuntu-24.04 |
+| Integration | 24 | ubuntu-24.04 |
+| E2E | 24 | ubuntu-24.04 |
 
 ## Security in Tests
 
@@ -58,5 +58,5 @@ The SSH server config is in `docker-compose.yml`. Test credentials are in
 1. Pick the correct layer.
 2. Create `test/<layer>/<module>.test.ts`.
 3. Follow Arrange-Act-Assert.
-4. Run `npm test -- --testPathPatterns=<file>` locally.
-5. Ensure `npm run lint` and `npm run typecheck` pass.
+4. Run `pnpm test -- --testPathPatterns=<file>` locally.
+5. Ensure `pnpm run lint` and `pnpm run typecheck` pass.

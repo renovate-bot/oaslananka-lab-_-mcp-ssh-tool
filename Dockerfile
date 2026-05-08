@@ -1,17 +1,16 @@
 # syntax=docker/dockerfile:1.7
 
-FROM node:24-alpine AS build
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS build
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-COPY scripts/use-ci-npm.mjs scripts/use-ci-npm.mjs
-RUN node scripts/use-ci-npm.mjs && npm ci --ignore-scripts
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm install --frozen-lockfile --ignore-scripts
 
 COPY tsconfig.json typedoc.json ./
 COPY src ./src
-RUN npm run build
+RUN pnpm run build
 
-FROM node:24-alpine AS runtime
+FROM node:24-alpine@sha256:d1b3b4da11eefd5941e7f0b9cf17783fc99d9c6fc34884a665f40a06dbdfc94f AS runtime
 WORKDIR /app
 
 ARG VCS_REF=unknown
@@ -25,9 +24,11 @@ LABEL org.opencontainers.image.title="mcp-ssh-tool" \
 
 ENV NODE_ENV=production
 
-COPY package.json package-lock.json ./
-COPY scripts/use-ci-npm.mjs scripts/use-ci-npm.mjs
-RUN node scripts/use-ci-npm.mjs && npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && \
+    corepack prepare pnpm@11.0.8 --activate && \
+    pnpm install --prod --frozen-lockfile --ignore-scripts && \
+    pnpm store prune
 
 COPY --from=build /app/dist ./dist
 COPY README.md LICENSE SECURITY.md SECURITY_DECISIONS.md ARCHITECTURE.md REGISTRY_SUBMISSION.md ./

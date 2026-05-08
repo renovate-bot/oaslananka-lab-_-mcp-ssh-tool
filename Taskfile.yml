@@ -4,51 +4,60 @@ tasks:
   hooks:
     desc: Run tracked git hook parity and pre-commit hooks when available.
     cmds:
-      - npm run hook:pre-commit
-      - npm run hook:pre-push
+      - pnpm run hook:pre-commit
+      - pnpm run hook:pre-push
       - node scripts/run-precommit-hooks.mjs --all-files
 
   format:check:
     desc: Check formatting.
     cmds:
-      - npm run format:check
+      - pnpm run format:check
+
+  format:
+    desc: Format tracked source files.
+    cmds:
+      - pnpm run format
 
   lint:
     desc: Run ESLint.
     cmds:
-      - npm run lint
+      - pnpm run lint
 
   typecheck:
     desc: Run TypeScript type checking.
     cmds:
-      - npm run typecheck
+      - pnpm run typecheck
 
   test:cov:
     desc: Run unit tests with coverage.
     cmds:
-      - npm run test:coverage
+      - pnpm run test:coverage
+
+  test:
+    desc: Run unit tests.
+    cmds:
+      - pnpm test
 
   audit:
-    desc: Run npm audit.
+    desc: Run pnpm audit.
     cmds:
-      - npm run audit
+      - pnpm run audit
 
   licenses:
     desc: Check dependency licenses.
     cmds:
-      - npm run licenses:check
+      - pnpm run licenses:check
 
   build:
     desc: Build TypeScript output.
     cmds:
-      - npm run build
+      - pnpm run build
 
   workflows:lint:
     desc: Validate workflow guards and run available workflow linters.
     cmds:
       - node scripts/check-workflow-guards.mjs
-      - actionlint
-      - zizmor .github/workflows
+      - bash scripts/run-workflow-lints.sh
 
   doppler:check:
     desc: Validate the tracked Doppler secret inventory for local parity.
@@ -58,18 +67,30 @@ tasks:
   sbom:
     desc: Generate a local CycloneDX SBOM artifact.
     cmds:
-      - 'node -e "require(''node:fs'').mkdirSync(''artifacts'', { recursive: true })"'
-      - npm sbom --sbom-format=cyclonedx > artifacts/sbom.cdx.json
+      - pnpm run sbom
 
   security:local:
     desc: Run best-effort local security checks with installed optional tools.
     cmds:
       - bash scripts/run-security-local.sh
 
-  pack:dry-run:
-    desc: Verify package contents with npm pack dry-run.
+  security:
+    desc: Run local security gates.
     cmds:
-      - npm pack --dry-run
+      - task: audit
+      - task: licenses
+      - task: workflows:lint
+      - task: doppler:check
+
+  pack:dry-run:
+    desc: Verify package contents with pnpm pack dry-run.
+    cmds:
+      - pnpm pack --dry-run
+
+  release:dry-run:
+    desc: Validate release metadata and package assets without publishing.
+    cmds:
+      - pnpm run release:dry-run
 
   ci:
     desc: Run local parity gates used before pushing.
@@ -81,8 +102,9 @@ tasks:
       - task: audit
       - task: licenses
       - task: build
-      - npm run sync-version -- --check
-      - npm run pack:check
+      - task: release:dry-run
+      - pnpm run sync-version -- --check
+      - pnpm run pack:check
       - task: workflows:lint
       - task: doppler:check
       - task: sbom

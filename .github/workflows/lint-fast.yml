@@ -11,16 +11,21 @@ permissions:
 
 env:
   ACTIONLINT_VERSION: v1.7.12
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 concurrency:
   group: lint-fast-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+defaults:
+  run:
+    shell: bash
+
 jobs:
   meta:
     name: Lint workflows
     if: github.repository == 'oaslananka-lab/mcp-ssh-tool'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -35,15 +40,20 @@ jobs:
       - name: actionlint
         run: actionlint
 
+      - uses: astral-sh/setup-uv@08807647e7069bb48b6ef5acd8ec9567f424441b
+        with:
+          version: 0.11.11
+
       - name: yamllint
         run: |
-          pip install yamllint --break-system-packages 2>/dev/null || pip install yamllint
-          yamllint -d "{extends: relaxed, rules: {line-length: disable}}" .github/
+          uv tool run --from yamllint yamllint \
+            -d "{extends: relaxed, rules: {line-length: disable}}" \
+            .github/
 
   node-fast:
     name: Node fast checks
     if: github.repository == 'oaslananka-lab/mcp-ssh-tool'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
@@ -53,19 +63,22 @@ jobs:
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
           node-version-file: .node-version
-          cache: npm
+          package-manager-cache: false
 
-      - name: Use pinned npm
-        run: node scripts/use-ci-npm.mjs
+      - name: Enable pnpm
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@11.0.8 --activate
 
       - name: Install
-        run: npm ci
+        run: pnpm install --frozen-lockfile
 
       - name: Lint
-        run: npm run lint
+        run: pnpm run lint
 
       - name: Format check
-        run: npm run format:check
+        run: pnpm run format:check
 
       - name: Typecheck
-        run: npm run typecheck
+        run: pnpm run typecheck

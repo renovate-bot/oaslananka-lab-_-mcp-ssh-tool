@@ -15,7 +15,7 @@ The primary release path uses npm trusted publishing from GitHub Actions. npm tr
 }
 ```
 
-`trusted-publish.yml` keeps the `npm-production` environment because existing npm trusted publisher configuration may bind to the exact environment name. Move to the `release` environment only after updating npm package settings.
+`release.yml` keeps the `npm-production` environment because existing npm trusted publisher configuration may bind to the exact environment name. Move to the `release` environment only after updating npm package settings.
 
 ## Provenance Verification
 
@@ -23,11 +23,11 @@ After a trusted publish:
 
 ```bash
 npm view mcp-ssh-tool version repository homepage bugs dist-tags --json
-npm view mcp-ssh-tool@2.1.1 dist.integrity dist.tarball --json
+npm view mcp-ssh-tool@<version> dist.integrity dist.tarball --json
 ```
 
 Use the npm package page to verify provenance for the published version. GitHub artifact attestations verify the tarball and SBOM produced by the org workflow.
 
-## Token Fallback
+## Token Policy
 
-`NPM_TOKEN` is allowed only for `publish.yml`, the emergency fallback workflow. It should be injected through Doppler, not stored in `.npmrc`, and not used by the trusted-publishing workflow.
+Normal publishing must use OIDC trusted publishing. `NPM_TOKEN` must not be stored in `.npmrc` or used by the release workflow.
