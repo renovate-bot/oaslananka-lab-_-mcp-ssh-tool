@@ -7,13 +7,13 @@
     "url": "https://github.com/oaslananka-lab/mcp-ssh-tool",
     "source": "github"
   },
-  "version": "2.2.1",
+  "version": "2.2.2",
   "packages": [
     {
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "mcp-ssh-tool",
-      "version": "2.2.1",
+      "version": "2.2.2",
       "transport": {
         "type": "stdio"
       }
@@ -22,7 +22,7 @@
       "registryType": "npm",
       "registryBaseUrl": "https://registry.npmjs.org",
       "identifier": "mcp-ssh-tool",
-      "version": "2.2.1",
+      "version": "2.2.2",
       "runtimeHint": "npx",
       "transport": {
         "type": "streamable-http",
