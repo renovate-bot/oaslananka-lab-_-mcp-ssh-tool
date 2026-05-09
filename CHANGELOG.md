@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.6](https://github.com/oaslananka-lab/mcp-ssh-tool/compare/mcp-ssh-tool-v2.2.5...mcp-ssh-tool-v2.2.6) (2026-05-09)
+
+
+### Bug Fixes
+
+* **security:** harden remote transport and package gates ([7346a98](https://github.com/oaslananka-lab/mcp-ssh-tool/commit/7346a98416fa29d80db89e44b29004ded504d258))
+
 ## [2.2.5](https://github.com/oaslananka-lab/mcp-ssh-tool/compare/mcp-ssh-tool-v2.2.4...mcp-ssh-tool-v2.2.5) (2026-05-09)
 
 

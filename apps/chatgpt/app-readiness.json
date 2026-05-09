@@ -10,7 +10,7 @@
   "mcp": {
     "serverName": "io.github.oaslananka/mcp-ssh-tool",
     "packageName": "mcp-ssh-tool",
-    "version": "2.2.5",
+    "version": "2.2.6",
     "localCommand": "mcp-ssh-tool",
     "localResourcePath": "/mcp",
     "transports": [
