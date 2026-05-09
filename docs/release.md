@@ -54,7 +54,7 @@ The MCP server name remains `io.github.oaslananka/mcp-ssh-tool` because the serv
 ```bash
 npm view mcp-ssh-tool version repository homepage bugs dist-tags --json
 npm view mcp-ssh-tool@<version> dist.integrity dist.tarball --json
-npx -y mcp-ssh-tool@<version> --version
+pnpm dlx mcp-ssh-tool@<version> --version
 gh release view <package-name>-v<version> --repo oaslananka-lab/mcp-ssh-tool
 curl -fsSL "https://registry.modelcontextprotocol.io/v0.1/servers/io.github.oaslananka%2Fmcp-ssh-tool/versions/latest"
 ```

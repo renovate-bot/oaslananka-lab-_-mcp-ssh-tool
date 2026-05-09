@@ -14,6 +14,9 @@ Configuration comes from built-in v2 defaults, `SSH_MCP_POLICY_FILE`, environmen
 | `SSH_MCP_SESSION_TTL` | `900000` | Default session TTL in milliseconds. |
 | `SSH_MCP_COMMAND_TIMEOUT` | `30000` | Default process/stream timeout. |
 | `SSH_MCP_MAX_FILE_SIZE` | `10485760` | Max bytes for `fs_read`. |
+| `SSH_MCP_MAX_COMMAND_OUTPUT_BYTES` | `1048576` | Max retained stdout/stderr bytes for command and stream tools. |
+| `SSH_MCP_MAX_STREAM_CHUNKS` | `4096` | Max retained stream chunks before truncation metadata is returned. |
+| `SSH_MCP_MAX_TRANSFER_BYTES` | `52428800` | Max bytes for `file_upload` and `file_download`. |
 | `SSH_MCP_RATE_LIMIT` | `true` | Enables global tool-call rate limiting. |
 | `SSH_MCP_RATE_LIMIT_MAX` | `100` | Max requests in the rate-limit window. |
 | `SSH_MCP_RATE_LIMIT_WINDOW_MS` | `60000` | Rate-limit window. |
@@ -33,7 +36,7 @@ Configuration comes from built-in v2 defaults, `SSH_MCP_POLICY_FILE`, environmen
 
 ## Policy
 
-`SSH_MCP_POLICY_FILE` is the canonical policy source. Environment variables are useful for simple deployments and override the file when provided.
+`SSH_MCP_POLICY_FILE` is the canonical policy source. If it is explicitly set and cannot be parsed, startup fails closed instead of falling back to an empty policy. Environment variables are useful for simple deployments and override the file when provided.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -91,6 +94,9 @@ SSH_MCP_MAX_SESSIONS=50
 SSH_MCP_SESSION_TTL=1800000
 SSH_MCP_COMMAND_TIMEOUT=45000
 SSH_MCP_MAX_FILE_SIZE=10485760
+SSH_MCP_MAX_COMMAND_OUTPUT_BYTES=1048576
+SSH_MCP_MAX_STREAM_CHUNKS=4096
+SSH_MCP_MAX_TRANSFER_BYTES=52428800
 SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES=/var/tmp/mcp-ssh-tool
 SSH_MCP_HTTP_HOST=127.0.0.1
 SSH_MCP_HTTP_PORT=3000

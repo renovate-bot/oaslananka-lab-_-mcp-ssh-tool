@@ -1,4 +1,7 @@
 import { afterEach, describe, expect, test } from "@jest/globals";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { ConfigManager } from "../../src/config.js";
 
 describe("ConfigManager", () => {
@@ -6,12 +9,16 @@ describe("ConfigManager", () => {
     delete process.env.SSH_MCP_MAX_SESSIONS;
     delete process.env.SSH_MCP_SESSION_TTL;
     delete process.env.SSH_MCP_COMMAND_TIMEOUT;
+    delete process.env.SSH_MCP_MAX_COMMAND_OUTPUT_BYTES;
+    delete process.env.SSH_MCP_MAX_STREAM_CHUNKS;
     delete process.env.SSH_MCP_DEBUG;
     delete process.env.SSH_MCP_RATE_LIMIT;
     delete process.env.SSH_MCP_STRICT_HOST_KEY;
     delete process.env.STRICT_HOST_KEY_CHECKING;
     delete process.env.SSH_MCP_HOST_KEY_POLICY;
     delete process.env.SSH_MCP_MAX_FILE_SIZE;
+    delete process.env.SSH_MCP_MAX_TRANSFER_BYTES;
+    delete process.env.SSH_MCP_POLICY_FILE;
     delete process.env.SSH_MCP_ALLOW_RAW_SUDO;
     delete process.env.SSH_MCP_COMMAND_DENY;
     delete process.env.SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES;
@@ -53,10 +60,13 @@ describe("ConfigManager", () => {
     process.env.SSH_MCP_MAX_SESSIONS = "42";
     process.env.SSH_MCP_SESSION_TTL = "5000";
     process.env.SSH_MCP_COMMAND_TIMEOUT = "7000";
+    process.env.SSH_MCP_MAX_COMMAND_OUTPUT_BYTES = "2048";
+    process.env.SSH_MCP_MAX_STREAM_CHUNKS = "12";
     process.env.SSH_MCP_DEBUG = "true";
     process.env.SSH_MCP_RATE_LIMIT = "false";
     process.env.SSH_MCP_STRICT_HOST_KEY = "true";
     process.env.SSH_MCP_MAX_FILE_SIZE = "1024";
+    process.env.SSH_MCP_MAX_TRANSFER_BYTES = "4096";
     process.env.SSH_MCP_ALLOW_RAW_SUDO = "true";
     process.env.SSH_MCP_COMMAND_DENY = "rm -rf,shutdown";
     process.env.SSH_MCP_LOCAL_PATH_ALLOW_PREFIXES = "/tmp/local,/var/tmp/local";
@@ -78,7 +88,10 @@ describe("ConfigManager", () => {
     expect(config.get("maxSessions")).toBe(42);
     expect(config.get("sessionTtlMs")).toBe(5000);
     expect(config.get("commandTimeoutMs")).toBe(7000);
+    expect(config.get("maxCommandOutputBytes")).toBe(2048);
+    expect(config.get("maxStreamChunks")).toBe(12);
     expect(config.get("maxFileSize")).toBe(1024);
+    expect(config.get("maxTransferBytes")).toBe(4096);
     expect(config.get("debug")).toBe(true);
     expect(config.get("rateLimit").enabled).toBe(false);
     expect(config.get("security").hostKeyPolicy).toBe("strict");
@@ -160,6 +173,19 @@ describe("ConfigManager", () => {
 
     expect(config.get("security").allowRootLogin).toBe(true);
     expect(config.get("policy").allowRootLogin).toBe(true);
+  });
+
+  test("fails closed when an explicitly configured policy file is invalid", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "policy-test-"));
+    const policyFile = path.join(tempDir, "policy.json");
+    fs.writeFileSync(policyFile, "{", "utf8");
+    process.env.SSH_MCP_POLICY_FILE = policyFile;
+
+    try {
+      expect(() => new ConfigManager()).toThrow("Invalid SSH_MCP_POLICY_FILE");
+    } finally {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    }
   });
 
   test("getAll returns frozen copies", () => {

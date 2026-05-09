@@ -52,7 +52,7 @@ export function createSudoError(message: string, hint?: string): SSHMCPError {
     hint,
     "Root/sudo privileges are required but not available.",
     true,
-    "Provide sudoPassword parameter or run as root user",
+    "Configure a restricted NOPASSWD sudoers profile for approved commands",
   );
 }
 

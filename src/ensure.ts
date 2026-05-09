@@ -22,29 +22,21 @@ export interface EnsureService {
   ensurePackage(
     sessionId: string,
     packageName: string,
-    sudoPassword?: string,
     state?: "present" | "absent",
   ): Promise<PackageResult>;
   ensureService(
     sessionId: string,
     serviceName: string,
     state: "started" | "stopped" | "restarted" | "enabled" | "disabled",
-    sudoPassword?: string,
   ): Promise<ServiceResult>;
   ensureLinesInFile(
     sessionId: string,
     filePath: string,
     lines: string[],
     createIfMissing?: boolean,
-    sudoPassword?: string,
     state?: "present" | "absent",
   ): Promise<LinesInFileResult>;
-  applyPatch(
-    sessionId: string,
-    filePath: string,
-    diff: string,
-    sudoPassword?: string,
-  ): Promise<PatchResult>;
+  applyPatch(sessionId: string, filePath: string, diff: string): Promise<PatchResult>;
 }
 
 export interface EnsureServiceDeps {
@@ -89,6 +81,25 @@ function sanitizeServiceName(name: string): string {
 
 function shellQuote(value: string): string {
   return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+}
+
+function describeError(error: unknown): string {
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+  const code = (error as { code?: unknown } | undefined)?.code;
+  return code ? String(code) : "unknown error";
+}
+
+function isPermissionError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | undefined)?.code;
+  if (code === "EACCES" || code === "EPERM" || code === 13 || code === 1) {
+    return true;
+  }
+
+  return /\b(EACCES|EPERM|permission|permission denied|access denied|operation not permitted)\b/iu.test(
+    describeError(error),
+  );
 }
 
 function getRemoveCommand(pm: PackageManager, packageName: string): string {
@@ -180,7 +191,6 @@ export function createEnsureService({
   async function ensurePackage(
     sessionId: string,
     packageName: string,
-    sudoPassword?: string,
     state: "present" | "absent" = "present",
   ): Promise<PackageResult> {
     const safePackageName = sanitizePackageName(packageName);
@@ -243,7 +253,7 @@ export function createEnsureService({
             : await processService.execSudo(
                 sessionId,
                 removeCommand,
-                sudoPassword,
+                undefined,
                 undefined,
                 undefined,
                 {
@@ -304,7 +314,7 @@ export function createEnsureService({
           : await processService.execSudo(
               sessionId,
               installCommand,
-              sudoPassword,
+              undefined,
               undefined,
               undefined,
               {
@@ -350,7 +360,6 @@ export function createEnsureService({
     sessionId: string,
     serviceName: string,
     state: "started" | "stopped" | "restarted" | "enabled" | "disabled",
-    sudoPassword?: string,
   ): Promise<ServiceResult> {
     const safeServiceName = sanitizeServiceName(serviceName);
     logger.debug("Ensuring service state", { sessionId, serviceName: safeServiceName, state });
@@ -429,7 +438,7 @@ export function createEnsureService({
       const result = await processService.execSudo(
         sessionId,
         command,
-        sudoPassword,
+        undefined,
         undefined,
         undefined,
         {
@@ -473,7 +482,6 @@ export function createEnsureService({
     filePath: string,
     lines: string[],
     createIfMissing = true,
-    sudoPassword?: string,
     state: "present" | "absent" = "present",
   ): Promise<LinesInFileResult> {
     logger.debug("Ensuring lines in file", {
@@ -485,6 +493,57 @@ export function createEnsureService({
 
     try {
       const osInfo = await sessionManager.getOSInfo(sessionId);
+
+      async function writeFileWithPrivilegeFallback(
+        content: string,
+        destructive: boolean,
+      ): Promise<void> {
+        try {
+          await fsService.writeFile(sessionId, filePath, content);
+          return;
+        } catch (directWriteError) {
+          if (!isPermissionError(directWriteError)) {
+            throw directWriteError;
+          }
+
+          const tempDir = resolveRemoteTempDir(osInfo);
+          const baseTempDir = tempDir.replace(/\/+$/, "");
+          const tempFile = `${baseTempDir}/ssh-mcp-${Date.now()}.tmp`;
+
+          try {
+            await fsService.writeFile(sessionId, tempFile, content);
+          } catch (tempWriteError) {
+            throw createFilesystemError(
+              `Failed to stage temporary file for ${filePath}`,
+              `Direct write failed with ${describeError(
+                directWriteError,
+              )}; temporary write failed with ${describeError(tempWriteError)}`,
+            );
+          }
+
+          const moveResult = await processService.execSudo(
+            sessionId,
+            `mv ${shellQuote(tempFile)} ${shellQuote(filePath)}`,
+            undefined,
+            undefined,
+            undefined,
+            {
+              policyAction: "ensure.lines",
+              rawSudo: false,
+              path: filePath,
+              destructive,
+            },
+          );
+
+          if (moveResult.code !== 0) {
+            throw createFilesystemError(
+              `Failed to move temporary file to ${filePath}`,
+              "Check file permissions and sudo access",
+            );
+          }
+        }
+      }
+
       let fileContent = "";
       let fileExists = false;
 
@@ -514,39 +573,7 @@ export function createEnsureService({
         const removedCount = existingLines.length - filteredLines.length;
         const newContent = filteredLines.join("\n");
 
-        try {
-          await fsService.writeFile(sessionId, filePath, newContent);
-        } catch (error) {
-          if (!sudoPassword) {
-            throw error;
-          }
-
-          const tempDir = resolveRemoteTempDir(osInfo);
-          const baseTempDir = tempDir.replace(/\/+$/, "");
-          const tempFile = `${baseTempDir}/ssh-mcp-${Date.now()}.tmp`;
-          await fsService.writeFile(sessionId, tempFile, newContent);
-
-          const moveResult = await processService.execSudo(
-            sessionId,
-            `mv ${shellQuote(tempFile)} ${shellQuote(filePath)}`,
-            sudoPassword,
-            undefined,
-            undefined,
-            {
-              policyAction: "ensure.lines",
-              rawSudo: false,
-              path: filePath,
-              destructive: true,
-            },
-          );
-
-          if (moveResult.code !== 0) {
-            throw createFilesystemError(
-              `Failed to move temporary file to ${filePath}`,
-              "Check file permissions and sudo access",
-            );
-          }
-        }
+        await writeFileWithPrivilegeFallback(newContent, true);
 
         logger.info("Lines removed from file successfully", {
           sessionId,
@@ -566,39 +593,7 @@ export function createEnsureService({
         ? `${fileContent}\n${missingLines.join("\n")}`
         : missingLines.join("\n");
 
-      try {
-        await fsService.writeFile(sessionId, filePath, newContent);
-      } catch (error) {
-        if (!sudoPassword) {
-          throw error;
-        }
-
-        const tempDir = resolveRemoteTempDir(osInfo);
-        const baseTempDir = tempDir.replace(/\/+$/, "");
-        const tempFile = `${baseTempDir}/ssh-mcp-${Date.now()}.tmp`;
-        await fsService.writeFile(sessionId, tempFile, newContent);
-
-        const moveResult = await processService.execSudo(
-          sessionId,
-          `mv ${shellQuote(tempFile)} ${shellQuote(filePath)}`,
-          sudoPassword,
-          undefined,
-          undefined,
-          {
-            policyAction: "ensure.lines",
-            rawSudo: false,
-            path: filePath,
-            destructive: true,
-          },
-        );
-
-        if (moveResult.code !== 0) {
-          throw createFilesystemError(
-            `Failed to move temporary file to ${filePath}`,
-            "Check file permissions and sudo access",
-          );
-        }
-      }
+      await writeFileWithPrivilegeFallback(newContent, true);
 
       logger.info("Lines added to file successfully", {
         sessionId,
@@ -621,7 +616,6 @@ export function createEnsureService({
     sessionId: string,
     filePath: string,
     diff: string,
-    sudoPassword?: string,
   ): Promise<PatchResult> {
     logger.debug("Applying patch to file", { sessionId, filePath });
 
@@ -654,21 +648,23 @@ export function createEnsureService({
         }
 
         const applyCommand = `patch -p0 ${shellQuote(filePath)} < ${shellQuote(tempPatchFile)}`;
-        const result = sudoPassword
-          ? await processService.execSudo(
-              sessionId,
-              applyCommand,
-              sudoPassword,
-              undefined,
-              undefined,
-              {
-                policyAction: "patch.apply",
-                rawSudo: false,
-                path: filePath,
-                destructive: true,
-              },
-            )
-          : await processService.execCommand(sessionId, applyCommand);
+        const directResult = await processService.execCommand(sessionId, applyCommand);
+        const result =
+          directResult.code === 0
+            ? directResult
+            : await processService.execSudo(
+                sessionId,
+                applyCommand,
+                undefined,
+                undefined,
+                undefined,
+                {
+                  policyAction: "patch.apply",
+                  rawSudo: false,
+                  path: filePath,
+                  destructive: true,
+                },
+              );
 
         const patchResult: PatchResult = {
           ok: result.code === 0,

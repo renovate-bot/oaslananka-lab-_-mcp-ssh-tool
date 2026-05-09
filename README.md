@@ -24,7 +24,7 @@ v2 is secure by default: strict host-key verification is on, root login is off, 
 Run without installing:
 
 ```bash
-npx -y mcp-ssh-tool --version
+pnpm dlx mcp-ssh-tool --version
 ```
 
 Or install globally:
@@ -82,6 +82,8 @@ Non-loopback HTTP startup is refused unless both `--bearer-token-file` and allow
 | HTTP bind | `127.0.0.1` |
 | Legacy SSE | disabled |
 | File reads | size-limited by `SSH_MCP_MAX_FILE_SIZE` |
+| Command output | bounded by `SSH_MCP_MAX_COMMAND_OUTPUT_BYTES` |
+| Transfers | bounded by `SSH_MCP_MAX_TRANSFER_BYTES` |
 
 Per-session `policyMode: "explain"` returns a plan/verdict without executing. Use it before mutations when an AI client needs to summarize risk.
 
@@ -156,8 +158,8 @@ ChatGPT or Claude Desktop:
 {
   "mcpServers": {
     "ssh-mcp": {
-      "command": "npx",
-      "args": ["-y", "mcp-ssh-tool"]
+      "command": "pnpm",
+      "args": ["dlx", "mcp-ssh-tool"]
     }
   }
 }
@@ -193,6 +195,9 @@ High-value environment variables:
 | `SSH_MCP_HOST_KEY_POLICY` | `strict` | `strict`, `accept-new`, or `insecure`. |
 | `SSH_MCP_KNOWN_HOSTS_PATH` | `~/.ssh/known_hosts` | Known-hosts file for strict verification. |
 | `SSH_MCP_MAX_FILE_SIZE` | `10485760` | Max bytes for `fs_read`. |
+| `SSH_MCP_MAX_COMMAND_OUTPUT_BYTES` | `1048576` | Max retained stdout/stderr bytes per command or stream. |
+| `SSH_MCP_MAX_STREAM_CHUNKS` | `4096` | Max retained streaming chunks before truncation metadata is returned. |
+| `SSH_MCP_MAX_TRANSFER_BYTES` | `52428800` | Max bytes for `file_upload` and `file_download`. |
 | `SSH_MCP_COMMAND_TIMEOUT` | `30000` | Default command timeout. |
 | `SSH_MCP_HTTP_HOST` | `127.0.0.1` | Streamable HTTP bind host. |
 | `SSH_MCP_HTTP_PORT` / `PORT` | `3000` | Streamable HTTP port. |

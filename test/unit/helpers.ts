@@ -17,7 +17,10 @@ export function createAllowPolicy() {
 export function createTestConfig() {
   return {
     commandTimeoutMs: 30000,
+    maxCommandOutputBytes: 1024 * 1024,
+    maxStreamChunks: 4096,
     maxFileSize: 1024 * 1024,
+    maxTransferBytes: 50 * 1024 * 1024,
   };
 }
 

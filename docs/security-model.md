@@ -47,6 +47,10 @@ All mutating or privilege-sensitive handlers call the central policy engine. Pol
 
 Use `policyMode: "explain"` to get a policy verdict without executing. This is the recommended AI-client pattern before configuration changes, deletes, sudo, package removal, service restart/stop, transfers, and tunnels.
 
+## Sudo Boundary
+
+Production mode does not accept sudo passwords through MCP tool inputs. Privileged workflows use non-interactive `sudo -n` and should be backed by restricted NOPASSWD sudoers rules for the exact package, service, file move, or patch commands that policy allows. Passwords must not be placed in shell strings, arguments, logs, audit events, telemetry, stdout, stderr, or error messages.
+
 ## Audit And Observability
 
 The server exposes:

@@ -223,6 +223,9 @@ export class SSHMCPError extends Error {
 }
 
 // Zod schemas for input validation
+const EnvKeySchema = z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/u);
+const EnvMapSchema = z.record(EnvKeySchema, z.string());
+
 export const ConnectionParamsSchema = z.object({
   host: z.string().min(1),
   username: z.string().min(1),
@@ -250,14 +253,13 @@ export const ExecSchema = z.object({
   sessionId: z.string().min(1),
   command: z.string().min(1),
   cwd: z.string().optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  env: EnvMapSchema.optional(),
   timeoutMs: z.number().min(1000).optional().describe("Command execution timeout in milliseconds"),
 });
 
 export const SudoSchema = z.object({
   sessionId: z.string().min(1),
   command: z.string().min(1),
-  password: z.string().optional(),
   cwd: z.string().optional(),
   timeoutMs: z.number().min(1000).optional().describe("Command execution timeout in milliseconds"),
 });
@@ -303,14 +305,12 @@ export const EnsurePackageSchema = z.object({
   sessionId: z.string().min(1),
   name: z.string().min(1),
   state: z.enum(["present", "absent"]).default("present"),
-  sudoPassword: z.string().optional(),
 });
 
 export const EnsureServiceSchema = z.object({
   sessionId: z.string().min(1),
   name: z.string().min(1),
   state: z.enum(["started", "stopped", "restarted", "enabled", "disabled"]),
-  sudoPassword: z.string().optional(),
 });
 
 export const EnsureLinesSchema = z.object({
@@ -319,14 +319,12 @@ export const EnsureLinesSchema = z.object({
   lines: z.array(z.string()),
   state: z.enum(["present", "absent"]).default("present"),
   createIfMissing: z.boolean().optional().default(true),
-  sudoPassword: z.string().optional(),
 });
 
 export const PatchApplySchema = z.object({
   sessionId: z.string().min(1),
   path: z.string().min(1),
   diff: z.string(),
-  sudoPassword: z.string().optional(),
 });
 
 export const HostAliasSchema = z.object({
@@ -341,7 +339,7 @@ export const ExecStreamSchema = z.object({
   sessionId: z.string().min(1),
   command: z.string().min(1),
   cwd: z.string().optional(),
-  env: z.record(z.string(), z.string()).optional(),
+  env: EnvMapSchema.optional(),
   timeoutMs: z.number().min(1000).optional().describe("Streaming command timeout in milliseconds"),
 });
 

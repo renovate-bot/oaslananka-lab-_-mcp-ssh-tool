@@ -28,6 +28,24 @@ if ($allowOffline -and $liveCheck -ne "1") {
 
 $doppler = Get-Command doppler -ErrorAction SilentlyContinue
 if (-not $doppler) {
+  if ($env:DOPPLER_TOKEN) {
+    $uri = "https://api.doppler.com/v3/configs/config/secrets/download?project=$([uri]::EscapeDataString($dopplerProject))&config=$([uri]::EscapeDataString($dopplerConfig))&format=json"
+    $secrets = Invoke-RestMethod -Uri $uri -Headers @{ Authorization = "Bearer $env:DOPPLER_TOKEN" } -Method Get
+    $missing = $false
+    foreach ($secretName in $requiredSecrets) {
+      if ($secrets.PSObject.Properties.Name -contains $secretName -and $secrets.$secretName) {
+        Write-Host "Verified Doppler secret: $secretName"
+      } else {
+        Write-Error "Missing Doppler secret: $secretName"
+        $missing = $true
+      }
+    }
+    if ($missing) {
+      exit 1
+    }
+    exit 0
+  }
+
   if ($allowOffline) {
     Write-Host "Doppler CLI is not installed; validated inventory only."
     $requiredSecrets | ForEach-Object { Write-Host "  - $_" }

@@ -2,7 +2,7 @@ import { createSudoError, wrapError, createTimeoutError } from "./errors.js";
 import { logger, createTimer } from "./logging.js";
 import type { PolicyAction, PolicyEngine } from "./policy.js";
 import type { SessionManager } from "./session.js";
-import { buildRemoteCommand, buildSudoCommand } from "./shell.js";
+import { buildRemoteCommandWithTimeout, buildSudoCommand } from "./shell.js";
 import type { ServerConfig } from "./config.js";
 import type { ExecResult } from "./types.js";
 import { ErrorCode } from "./types.js";
@@ -42,8 +42,30 @@ export interface SudoPolicyOptions {
 
 export interface ProcessServiceDeps {
   sessionManager: Pick<SessionManager, "getSession" | "getOSInfo">;
-  config: Pick<ServerConfig, "commandTimeoutMs">;
+  config: Pick<ServerConfig, "commandTimeoutMs" | "maxCommandOutputBytes">;
   policy: Pick<PolicyEngine, "assertAllowed">;
+}
+
+function truncateText(value: string, maxBytes: number): string {
+  const valueBytes = Buffer.byteLength(value, "utf8");
+  if (valueBytes <= maxBytes) {
+    return value;
+  }
+
+  const marker = `\n[ssh-mcp-tool: output truncated after ${maxBytes} bytes]\n`;
+  const markerBytes = Buffer.byteLength(marker, "utf8");
+  const budget = Math.max(0, maxBytes - markerBytes);
+  let output = "";
+  let used = 0;
+  for (const char of value) {
+    const charBytes = Buffer.byteLength(char, "utf8");
+    if (used + charBytes > budget) {
+      break;
+    }
+    output += char;
+    used += charBytes;
+  }
+  return `${output}${marker}`;
 }
 
 async function execWithTimeout<T>(work: Promise<T>, timeoutMs: number, label: string): Promise<T> {
@@ -108,7 +130,13 @@ export function createProcessService({
     const effectiveTimeoutMs = timeoutMs ?? config.commandTimeoutMs;
 
     try {
-      const shellCommand = buildRemoteCommand(command, osInfo, cwd, env);
+      const shellCommand = buildRemoteCommandWithTimeout(
+        command,
+        osInfo,
+        effectiveTimeoutMs,
+        cwd,
+        env,
+      );
 
       const result = await execWithTimeout(
         session.ssh.execCommand(shellCommand),
@@ -118,10 +146,17 @@ export function createProcessService({
 
       const execResult: ExecResult = {
         code: result.code ?? 0,
-        stdout: result.stdout ?? "",
-        stderr: result.stderr ?? "",
+        stdout: truncateText(result.stdout ?? "", config.maxCommandOutputBytes),
+        stderr: truncateText(result.stderr ?? "", config.maxCommandOutputBytes),
         durationMs: timer.elapsed(),
       };
+
+      if (execResult.code === 124 || execResult.code === 137 || execResult.code === 143) {
+        throw createTimeoutError(
+          `Command timed out after ${effectiveTimeoutMs}ms and remote termination was requested`,
+          "Increase timeout or optimize the command",
+        );
+      }
 
       logger.debug("Command execution completed", {
         sessionId,
@@ -195,7 +230,14 @@ export function createProcessService({
     const effectiveTimeoutMs = timeoutMs ?? config.commandTimeoutMs;
 
     try {
-      const fullCommand = buildSudoCommand(command, osInfo, password, cwd);
+      if (password !== undefined) {
+        throw createSudoError(
+          "Password-based sudo through MCP inputs is disabled",
+          "Configure a restricted NOPASSWD sudoers allowlist for approved commands.",
+        );
+      }
+
+      const fullCommand = buildSudoCommand(command, osInfo, cwd);
       const result = await execWithTimeout(
         session.ssh.execCommand(fullCommand),
         effectiveTimeoutMs,
@@ -211,15 +253,15 @@ export function createProcessService({
         ) {
           throw createSudoError(
             "Sudo authentication failed",
-            "Provide a valid sudo password or ensure NOPASSWD is configured",
+            "Configure a restricted NOPASSWD sudoers profile for approved commands.",
           );
         }
       }
 
       const execResult: ExecResult = {
         code: result.code ?? 0,
-        stdout: result.stdout ?? "",
-        stderr: result.stderr ?? "",
+        stdout: truncateText(result.stdout ?? "", config.maxCommandOutputBytes),
+        stderr: truncateText(result.stderr ?? "", config.maxCommandOutputBytes),
         durationMs: timer.elapsed(),
       };
 

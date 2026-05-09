@@ -6,7 +6,7 @@ import type { SessionManager } from "./session.js";
 import type { ServerConfig } from "./config.js";
 
 export interface StreamChunk {
-  type: "stdout" | "stderr" | "exit";
+  type: "stdout" | "stderr" | "exit" | "truncated";
   data?: string;
   code?: number;
   timestamp: number;
@@ -27,6 +27,7 @@ export interface StreamResult {
   stdout: string;
   stderr: string;
   durationMs: number;
+  truncated: boolean;
 }
 
 export interface StreamingService {
@@ -35,8 +36,32 @@ export interface StreamingService {
 
 export interface StreamingServiceDeps {
   sessionManager: Pick<SessionManager, "getSession" | "getOSInfo">;
-  config: Pick<ServerConfig, "commandTimeoutMs">;
+  config: Pick<ServerConfig, "commandTimeoutMs" | "maxCommandOutputBytes" | "maxStreamChunks">;
   policy: Pick<PolicyEngine, "assertAllowed">;
+}
+
+function appendBounded(current: string, data: string, maxBytes: number) {
+  const currentBytes = Buffer.byteLength(current, "utf8");
+  const remaining = maxBytes - currentBytes;
+  if (remaining <= 0) {
+    return { value: current, truncated: data.length > 0 };
+  }
+
+  if (Buffer.byteLength(data, "utf8") <= remaining) {
+    return { value: current + data, truncated: false };
+  }
+
+  let next = "";
+  let used = 0;
+  for (const char of data) {
+    const charBytes = Buffer.byteLength(char, "utf8");
+    if (used + charBytes > remaining) {
+      break;
+    }
+    next += char;
+    used += charBytes;
+  }
+  return { value: current + next, truncated: true };
 }
 
 export function createStreamingService({
@@ -65,6 +90,7 @@ export function createStreamingService({
         stdout: JSON.stringify({ wouldExecute: true, command, policy: decision }, null, 2),
         stderr: "",
         durationMs: 0,
+        truncated: false,
       };
     }
 
@@ -73,6 +99,7 @@ export function createStreamingService({
     const chunks: StreamChunk[] = [];
     let fullStdout = "";
     let fullStderr = "";
+    let truncated = false;
 
     return new Promise((resolve, reject) => {
       const shellCommand = buildRemoteCommand(command, osInfo, cwd, env);
@@ -89,31 +116,48 @@ export function createStreamingService({
         .execCommand(shellCommand, {
           onStdout: (chunk: Buffer) => {
             const data = chunk.toString();
-            fullStdout += data;
+            const bounded = appendBounded(fullStdout, data, config.maxCommandOutputBytes);
+            fullStdout = bounded.value;
+            truncated = truncated || bounded.truncated || chunks.length >= config.maxStreamChunks;
 
-            const streamChunk: StreamChunk = {
-              type: "stdout",
-              data,
-              timestamp: Date.now(),
-            };
-            chunks.push(streamChunk);
-            onChunk?.(streamChunk);
+            if (chunks.length < config.maxStreamChunks && !bounded.truncated) {
+              const streamChunk: StreamChunk = {
+                type: "stdout",
+                data,
+                timestamp: Date.now(),
+              };
+              chunks.push(streamChunk);
+              onChunk?.(streamChunk);
+            }
           },
           onStderr: (chunk: Buffer) => {
             const data = chunk.toString();
-            fullStderr += data;
+            const bounded = appendBounded(fullStderr, data, config.maxCommandOutputBytes);
+            fullStderr = bounded.value;
+            truncated = truncated || bounded.truncated || chunks.length >= config.maxStreamChunks;
 
-            const streamChunk: StreamChunk = {
-              type: "stderr",
-              data,
-              timestamp: Date.now(),
-            };
-            chunks.push(streamChunk);
-            onChunk?.(streamChunk);
+            if (chunks.length < config.maxStreamChunks && !bounded.truncated) {
+              const streamChunk: StreamChunk = {
+                type: "stderr",
+                data,
+                timestamp: Date.now(),
+              };
+              chunks.push(streamChunk);
+              onChunk?.(streamChunk);
+            }
           },
         })
         .then((result) => {
           clearTimeout(timeout);
+          if (truncated) {
+            const truncatedChunk: StreamChunk = {
+              type: "truncated",
+              data: "Output exceeded configured streaming limits",
+              timestamp: Date.now(),
+            };
+            chunks.push(truncatedChunk);
+            onChunk?.(truncatedChunk);
+          }
           const exitChunk: StreamChunk = {
             type: "exit",
             code: result.code ?? 0,
@@ -128,6 +172,7 @@ export function createStreamingService({
             stdout: fullStdout,
             stderr: fullStderr,
             durationMs: Date.now() - startTime,
+            truncated,
           };
 
           logger.debug("Streaming execution completed", {
@@ -151,7 +196,7 @@ export function createStreamingService({
 
 export function formatStreamOutput(chunks: StreamChunk[]): string {
   return chunks
-    .filter((chunk) => chunk.type !== "exit" && chunk.data)
+    .filter((chunk) => chunk.type !== "exit" && chunk.type !== "truncated" && chunk.data)
     .map((chunk) => chunk.data)
     .join("");
 }

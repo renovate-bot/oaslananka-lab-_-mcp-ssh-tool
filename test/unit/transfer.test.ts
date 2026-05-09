@@ -4,7 +4,12 @@ import os from "os";
 import path from "path";
 import { PolicyEngine, type PolicyConfig } from "../../src/policy.js";
 import { createTransferService, formatETA, formatSize, formatSpeed } from "../../src/transfer.js";
-import { createAllowPolicy, createSessionInfo, createTransferMetrics } from "./helpers.js";
+import {
+  createAllowPolicy,
+  createSessionInfo,
+  createTestConfig,
+  createTransferMetrics,
+} from "./helpers.js";
 
 function createTransferPolicy(
   localPathAllowPrefixes: string[],
@@ -73,6 +78,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createAllowPolicy(),
+      config: createTestConfig(),
     });
 
     const result = await service.uploadFileWithProgress(localPath, "/tmp/upload.txt", {
@@ -88,6 +94,72 @@ describe("createTransferService", () => {
         percentage: 100,
       }),
     );
+  });
+
+  test("rejects uploads and downloads over maxTransferBytes before buffering", async () => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "transfer-test-"));
+    const localPath = path.join(tempDir, "large.bin");
+    fs.writeFileSync(localPath, "hello world");
+    const config = { ...createTestConfig(), maxTransferBytes: 5 };
+    const writeFile = jest.fn(
+      (
+        _remotePath: string,
+        _data: Buffer,
+        _options: object,
+        callback: (err?: Error | null) => void,
+      ) => callback(null),
+    );
+    const readFile = jest.fn(
+      (_remotePath: string, callback: (err: Error | null, data: Buffer) => void) =>
+        callback(null, Buffer.from("hello world")),
+    );
+
+    const uploadService = createTransferService({
+      sessionManager: {
+        getSession: () =>
+          ({
+            info: createSessionInfo(),
+            sftp: { readFile, writeFile },
+          }) as any,
+      },
+      metrics: createTransferMetrics(),
+      policy: createAllowPolicy(),
+      config,
+    });
+
+    await expect(
+      uploadService.uploadFileWithProgress(localPath, "/tmp/upload.txt", {
+        sessionId: "session-1",
+      }),
+    ).rejects.toThrow("maxTransferBytes");
+    expect(writeFile).not.toHaveBeenCalled();
+    expect(readFile).not.toHaveBeenCalled();
+
+    const downloadService = createTransferService({
+      sessionManager: {
+        getSession: () =>
+          ({
+            info: createSessionInfo(),
+            sftp: {
+              stat: (
+                _remotePath: string,
+                callback: (err: Error | null, stats: { size: number }) => void,
+              ) => callback(null, { size: 10 }),
+              readFile,
+            },
+          }) as any,
+      },
+      metrics: createTransferMetrics(),
+      policy: createAllowPolicy(),
+      config,
+    });
+
+    await expect(
+      downloadService.downloadFileWithProgress("/tmp/remote.txt", path.join(tempDir, "out.bin"), {
+        sessionId: "session-1",
+      }),
+    ).rejects.toThrow("maxTransferBytes");
+    expect(readFile).not.toHaveBeenCalled();
   });
 
   test("checks local upload source policy before reading", async () => {
@@ -120,6 +192,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createTransferPolicy([allowed]),
+      config: createTestConfig(),
     });
 
     await expect(
@@ -177,6 +250,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createTransferPolicy([allowed]),
+      config: createTestConfig(),
     });
 
     const redundantPath = `${allowed}${path.sep}.${path.sep}${path.basename(allowedPath)}`;
@@ -236,6 +310,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createAllowPolicy(),
+      config: createTestConfig(),
     });
 
     const result = await service.downloadFileWithProgress("/tmp/remote.txt", localPath, {
@@ -272,6 +347,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createTransferPolicy([allowed]),
+      config: createTestConfig(),
     });
 
     await expect(
@@ -321,6 +397,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createTransferPolicy([allowed]),
+      config: createTestConfig(),
     });
 
     await expect(
@@ -366,6 +443,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createAllowPolicy(),
+      config: createTestConfig(),
     });
 
     await expect(
@@ -380,6 +458,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createAllowPolicy(),
+      config: createTestConfig(),
     });
 
     await expect(
@@ -422,6 +501,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createAllowPolicy(),
+      config: createTestConfig(),
     });
 
     await expect(
@@ -449,6 +529,7 @@ describe("createTransferService", () => {
       },
       metrics: createTransferMetrics(),
       policy: createAllowPolicy(),
+      config: createTestConfig(),
     });
 
     await expect(

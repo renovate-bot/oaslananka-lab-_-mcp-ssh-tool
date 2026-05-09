@@ -1,6 +1,6 @@
 import { NodeSSH, type Config } from "node-ssh";
 import type { SFTPWrapper } from "ssh2";
-import { createHash, randomUUID } from "node:crypto";
+import { createHash, createHmac, randomUUID } from "node:crypto";
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
@@ -47,6 +47,27 @@ type SSHConnectConfig = Config & {
   knownHosts?: string;
   hostHash?: "md5" | "sha1" | "sha256";
 };
+
+const KNOWN_HOST_KEY_TYPES = new Set([
+  "ssh-ed25519",
+  "ssh-ed25519-cert-v01@openssh.com",
+  "ssh-rsa",
+  "ssh-rsa-cert-v01@openssh.com",
+  "rsa-sha2-256",
+  "rsa-sha2-256-cert-v01@openssh.com",
+  "rsa-sha2-512",
+  "rsa-sha2-512-cert-v01@openssh.com",
+  "ecdsa-sha2-nistp256",
+  "ecdsa-sha2-nistp256-cert-v01@openssh.com",
+  "ecdsa-sha2-nistp384",
+  "ecdsa-sha2-nistp384-cert-v01@openssh.com",
+  "ecdsa-sha2-nistp521",
+  "ecdsa-sha2-nistp521-cert-v01@openssh.com",
+  "sk-ssh-ed25519@openssh.com",
+  "sk-ssh-ed25519-cert-v01@openssh.com",
+  "sk-ecdsa-sha2-nistp256@openssh.com",
+  "sk-ecdsa-sha2-nistp256-cert-v01@openssh.com",
+]);
 
 function normalizeSha256Fingerprint(fingerprint: string): string {
   return fingerprint.replace(/^SHA256:/i, "").trim();
@@ -501,9 +522,6 @@ export class SessionManager {
   }
 
   private resolveHostKeyPolicy(params: ConnectionParams): HostKeyPolicy {
-    if (params.strictHostKeyChecking === false && params.hostKeyPolicy === "strict") {
-      return "insecure";
-    }
     if (params.hostKeyPolicy) {
       return params.hostKeyPolicy;
     }
@@ -583,10 +601,16 @@ export class SessionManager {
       if (parts.length < 4) {
         return undefined;
       }
+      if (!KNOWN_HOST_KEY_TYPES.has(parts[2] ?? "")) {
+        return undefined;
+      }
       return { marker: parts[0], hosts: parts[1] ?? "", keyBlob: parts[3] ?? "" };
     }
 
     if (parts.length < 3) {
+      return undefined;
+    }
+    if (!KNOWN_HOST_KEY_TYPES.has(parts[1] ?? "")) {
       return undefined;
     }
 
@@ -598,6 +622,9 @@ export class SessionManager {
 
     for (const pattern of hosts.split(",")) {
       if (pattern.startsWith("|")) {
+        if (this.hashedKnownHostPatternMatches(pattern, candidates)) {
+          return true;
+        }
         continue;
       }
 
@@ -614,6 +641,28 @@ export class SessionManager {
       if (regex.test(host)) {
         return true;
       }
+    }
+
+    return false;
+  }
+
+  private hashedKnownHostPatternMatches(pattern: string, candidates: Set<string>): boolean {
+    const match = /^\|1\|([^|]+)\|([^|]+)$/u.exec(pattern);
+    if (!match) {
+      return false;
+    }
+
+    try {
+      const salt = Buffer.from(match[1] ?? "", "base64");
+      const expected = match[2] ?? "";
+      for (const candidate of candidates) {
+        const digest = createHmac("sha1", salt).update(candidate).digest("base64");
+        if (digest === expected) {
+          return true;
+        }
+      }
+    } catch {
+      return false;
     }
 
     return false;

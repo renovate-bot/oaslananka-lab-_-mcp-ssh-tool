@@ -48,7 +48,7 @@ permissions:
 
 concurrency:
   group: review-thread-gate-${{ github.event.pull_request.number || github.event.issue.number || inputs.pr_number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 defaults:
   run:

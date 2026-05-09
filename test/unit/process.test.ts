@@ -45,6 +45,7 @@ describe("createProcessService", () => {
       }),
     );
     expect(execCommand.mock.calls[0]?.[0]).toContain("bash -lc");
+    expect(execCommand.mock.calls[0]?.[0]).toContain("timeout -k");
   });
 
   test("fails when session is missing", async () => {
@@ -94,8 +95,53 @@ describe("createProcessService", () => {
     });
     const service = createProcessService({ sessionManager, config, policy } as any);
 
-    await expect(service.execSudo("session-1", "apt-get update", "secret")).rejects.toMatchObject({
+    await expect(service.execSudo("session-1", "apt-get update")).rejects.toMatchObject({
       code: ErrorCode.ENOSUDO,
+    });
+  });
+
+  test("rejects sudo passwords before constructing a remote command", async () => {
+    const { config, execCommand, policy, sessionManager } = createDeps();
+    const service = createProcessService({ sessionManager, config, policy } as any);
+
+    await expect(service.execSudo("session-1", "id", "secret")).rejects.toMatchObject({
+      code: ErrorCode.ENOSUDO,
+    });
+    expect(execCommand).not.toHaveBeenCalled();
+  });
+
+  test("does not classify sudo command exit codes as timeout without remote timeout wrapper", async () => {
+    const { config, execCommand, policy, sessionManager } = createDeps();
+    execCommand.mockResolvedValue({ code: 124, stdout: "", stderr: "" });
+    const service = createProcessService({ sessionManager, config, policy } as any);
+
+    await expect(service.execSudo("session-1", "id")).resolves.toMatchObject({
+      code: 124,
+    });
+  });
+
+  test("truncates oversized command output deterministically", async () => {
+    const { execCommand, policy, sessionManager } = createDeps();
+    execCommand.mockResolvedValue({ code: 0, stdout: "abcdef", stderr: "ghijkl" });
+    const service = createProcessService({
+      sessionManager,
+      config: { ...createTestConfig(), maxCommandOutputBytes: 5 },
+      policy,
+    } as any);
+
+    const result = await service.execCommand("session-1", "echo ok");
+
+    expect(result.stdout).toContain("truncated");
+    expect(result.stderr).toContain("truncated");
+  });
+
+  test("treats remote timeout exit codes as timeout errors", async () => {
+    const { config, execCommand, policy, sessionManager } = createDeps();
+    execCommand.mockResolvedValue({ code: 124, stdout: "", stderr: "" });
+    const service = createProcessService({ sessionManager, config, policy } as any);
+
+    await expect(service.execCommand("session-1", "sleep 10")).rejects.toMatchObject({
+      code: ErrorCode.ETIMEOUT,
     });
   });
 

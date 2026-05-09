@@ -27,8 +27,8 @@ Bu komut, ChatGPT Desktop yapılandırma dosyasını otomatik olarak günceller.
     "ssh-mcp": {
       "name": "io.github.oaslananka/mcp-ssh-tool",
       "description": "Secure SSH MCP automation server",
-      "command": "npx",
-      "args": ["-y", "mcp-ssh-tool"]
+      "command": "pnpm",
+      "args": ["dlx", "mcp-ssh-tool"]
     }
   }
 }

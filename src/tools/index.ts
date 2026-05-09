@@ -41,6 +41,7 @@ export function createToolRegistry(container: AppContainer): ToolRegistry {
     sessionManager: container.sessionManager,
     metrics: container.metrics,
     policy: container.policy,
+    config: container.config.getAll(),
   });
   const tunnelService = createTunnelService({
     sessionManager: container.sessionManager,

@@ -25,6 +25,7 @@ describe("ProcessToolProvider", () => {
           stdout: "stream",
           stderr: "",
           durationMs: 5,
+          truncated: false,
         })),
       },
       metrics: {

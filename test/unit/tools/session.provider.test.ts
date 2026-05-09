@@ -79,6 +79,8 @@ describe("SessionToolProvider", () => {
 
   test("handles ssh-config backed tools", async () => {
     const { SessionToolProvider } = await loadProvider();
+    getConfiguredHosts.mockResolvedValue(["web"]);
+    resolveSSHHost.mockResolvedValue({ host: "web.example.com", username: "deploy", port: 22 });
     const provider = new SessionToolProvider({
       sessionManager: {
         getActiveSessions: () => [],

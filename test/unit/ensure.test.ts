@@ -50,13 +50,13 @@ describe("createEnsureService", () => {
       .mockResolvedValueOnce({ code: 0, stdout: "removed", stderr: "", durationMs: 1 });
     const service = createEnsureService(deps as any);
 
-    await expect(service.ensurePackage("session-1", "nginx", "secret", "present")).resolves.toEqual(
+    await expect(service.ensurePackage("session-1", "nginx", "present")).resolves.toEqual(
       expect.objectContaining({
         ok: true,
         pm: "apt",
       }),
     );
-    await expect(service.ensurePackage("session-1", "nginx", "secret", "absent")).resolves.toEqual(
+    await expect(service.ensurePackage("session-1", "nginx", "absent")).resolves.toEqual(
       expect.objectContaining({
         ok: true,
         pm: "apt",
@@ -71,10 +71,10 @@ describe("createEnsureService", () => {
       .mockResolvedValueOnce({ code: 1, stdout: "", stderr: "" });
     const service = createEnsureService(deps as any);
 
-    await expect(service.ensurePackage("session-1", "curl", undefined, "present")).resolves.toEqual(
+    await expect(service.ensurePackage("session-1", "curl", "present")).resolves.toEqual(
       expect.objectContaining({ ok: true }),
     );
-    await expect(service.ensurePackage("session-1", "curl", undefined, "absent")).resolves.toEqual(
+    await expect(service.ensurePackage("session-1", "curl", "absent")).resolves.toEqual(
       expect.objectContaining({ ok: true }),
     );
   });
@@ -146,9 +146,9 @@ describe("createEnsureService", () => {
       });
 
       const installService = createEnsureService(installDeps as any);
-      await expect(
-        installService.ensurePackage("session-1", "tree", "secret", "present"),
-      ).resolves.toEqual(expect.objectContaining({ ok: true, pm: packageManager }));
+      await expect(installService.ensurePackage("session-1", "tree", "present")).resolves.toEqual(
+        expect.objectContaining({ ok: true, pm: packageManager }),
+      );
       expect(installDeps.processService.execCommand).toHaveBeenCalledWith(
         "session-1",
         checkCommand,
@@ -156,7 +156,7 @@ describe("createEnsureService", () => {
       expect(installDeps.processService.execSudo).toHaveBeenCalledWith(
         "session-1",
         installCommand,
-        "secret",
+        undefined,
         undefined,
         undefined,
         expect.objectContaining({
@@ -189,14 +189,14 @@ describe("createEnsureService", () => {
       });
 
       const removeService = createEnsureService(removeDeps as any);
-      await expect(
-        removeService.ensurePackage("session-1", "tree", "secret", "absent"),
-      ).resolves.toEqual(expect.objectContaining({ ok: true, pm: packageManager }));
+      await expect(removeService.ensurePackage("session-1", "tree", "absent")).resolves.toEqual(
+        expect.objectContaining({ ok: true, pm: packageManager }),
+      );
       expect(removeDeps.processService.execCommand).toHaveBeenCalledWith("session-1", checkCommand);
       expect(removeDeps.processService.execSudo).toHaveBeenCalledWith(
         "session-1",
         removeCommand,
-        "secret",
+        undefined,
         undefined,
         undefined,
         expect.objectContaining({
@@ -218,13 +218,13 @@ describe("createEnsureService", () => {
     });
     const service = createEnsureService(deps as any);
 
-    await expect(service.ensureService("session-1", "nginx", "started", "secret")).resolves.toEqual(
-      { ok: true },
-    );
+    await expect(service.ensureService("session-1", "nginx", "started")).resolves.toEqual({
+      ok: true,
+    });
     expect(deps.processService.execSudo).toHaveBeenCalledWith(
       "session-1",
       "systemctl start nginx",
-      "secret",
+      undefined,
       undefined,
       undefined,
       expect.objectContaining({
@@ -264,13 +264,13 @@ describe("createEnsureService", () => {
     });
     const service = createEnsureService(deps as any);
 
-    await expect(
-      service.ensureService("session-1", "nginx", state as any, "secret"),
-    ).resolves.toEqual({ ok: true });
+    await expect(service.ensureService("session-1", "nginx", state as any)).resolves.toEqual({
+      ok: true,
+    });
     expect(deps.processService.execSudo).toHaveBeenCalledWith(
       "session-1",
       expectedCommand,
-      "secret",
+      undefined,
       undefined,
       undefined,
       expect.objectContaining({
@@ -301,12 +301,12 @@ describe("createEnsureService", () => {
       added: 1,
     });
     await expect(
-      service.ensureLinesInFile("session-1", "/tmp/demo", ["two"], true, "secret", "absent"),
+      service.ensureLinesInFile("session-1", "/tmp/demo", ["two"], true, "absent"),
     ).resolves.toEqual({ ok: true, added: -1 });
     expect(deps.processService.execSudo).toHaveBeenCalledWith(
       "session-1",
       expect.stringContaining("mv "),
-      "secret",
+      undefined,
       undefined,
       undefined,
       expect.objectContaining({
@@ -315,6 +315,41 @@ describe("createEnsureService", () => {
         rawSudo: false,
       }),
     );
+  });
+
+  test("does not hide non-permission write failures behind sudo fallback", async () => {
+    const deps = createDeps();
+    deps.fsService.pathExists.mockResolvedValue(true);
+    deps.fsService.readFile.mockResolvedValue("alpha");
+    deps.fsService.writeFile.mockRejectedValueOnce(
+      Object.assign(new Error("disk full"), { code: "ENOSPC" }),
+    );
+    const service = createEnsureService(deps as any);
+
+    await expect(
+      service.ensureLinesInFile("session-1", "/tmp/demo", ["beta"], true),
+    ).rejects.toThrow("disk full");
+    expect(deps.processService.execSudo).not.toHaveBeenCalled();
+    expect(deps.fsService.writeFile).toHaveBeenCalledTimes(1);
+  });
+
+  test("reports direct and temporary write failures during sudo fallback", async () => {
+    const deps = createDeps();
+    deps.fsService.pathExists.mockResolvedValue(true);
+    deps.fsService.readFile.mockResolvedValue("alpha");
+    deps.fsService.writeFile
+      .mockRejectedValueOnce(new Error("permission denied"))
+      .mockRejectedValueOnce(new Error("tmp full"));
+    const service = createEnsureService(deps as any);
+
+    await expect(
+      service.ensureLinesInFile("session-1", "/tmp/demo", ["beta"], true),
+    ).rejects.toMatchObject({
+      code: ErrorCode.EFS,
+      message: expect.stringContaining("Failed to stage temporary file"),
+      hint: expect.stringContaining("temporary write failed with tmp full"),
+    });
+    expect(deps.processService.execSudo).not.toHaveBeenCalled();
   });
 
   test("errors when createIfMissing is false for absent files", async () => {
@@ -326,7 +361,7 @@ describe("createEnsureService", () => {
       service.ensureLinesInFile("session-1", "/tmp/demo", ["x"], false),
     ).rejects.toMatchObject({ code: ErrorCode.EFS });
     await expect(
-      service.ensureLinesInFile("session-1", "/tmp/demo", ["x"], true, undefined, "absent"),
+      service.ensureLinesInFile("session-1", "/tmp/demo", ["x"], true, "absent"),
     ).resolves.toEqual({ ok: true, added: 0 });
   });
 
@@ -341,7 +376,7 @@ describe("createEnsureService", () => {
       added: 0,
     });
     await expect(
-      service.ensureLinesInFile("session-1", "/tmp/demo", ["gamma"], true, undefined, "absent"),
+      service.ensureLinesInFile("session-1", "/tmp/demo", ["gamma"], true, "absent"),
     ).resolves.toEqual({ ok: true, added: 0 });
   });
 
@@ -365,7 +400,7 @@ describe("createEnsureService", () => {
     );
   });
 
-  test("applies patches with sudo and uses windows cleanup commands", async () => {
+  test("falls back to sudo for patches and uses windows cleanup commands", async () => {
     const deps = createDeps();
     deps.sessionManager.getOSInfo.mockResolvedValue({
       platform: "windows",
@@ -380,6 +415,7 @@ describe("createEnsureService", () => {
     deps.fsService.writeFile.mockResolvedValue(true);
     deps.processService.execCommand
       .mockResolvedValueOnce({ code: 0, stdout: "", stderr: "", durationMs: 1 })
+      .mockResolvedValueOnce({ code: 1, stdout: "", stderr: "permission", durationMs: 1 })
       .mockResolvedValueOnce({ code: 0, stdout: "", stderr: "", durationMs: 1 });
     deps.processService.execSudo.mockResolvedValue({
       code: 0,
@@ -389,13 +425,14 @@ describe("createEnsureService", () => {
     });
     const service = createEnsureService(deps as any);
 
-    await expect(
-      service.applyPatch("session-1", "C:/Temp/demo.txt", "diff", "secret"),
-    ).resolves.toEqual({ ok: true, changed: true });
+    await expect(service.applyPatch("session-1", "C:/Temp/demo.txt", "diff")).resolves.toEqual({
+      ok: true,
+      changed: true,
+    });
     expect(deps.processService.execSudo).toHaveBeenCalledWith(
       "session-1",
       expect.stringContaining("patch -p0"),
-      "secret",
+      undefined,
       undefined,
       undefined,
       expect.objectContaining({
@@ -427,7 +464,7 @@ describe("createEnsureService", () => {
       .mockResolvedValueOnce({ code: 0, stdout: "installed", stderr: "", durationMs: 1 });
     const service = createEnsureService(deps as any);
 
-    await expect(service.ensurePackage("session-1", "wget", undefined, "present")).resolves.toEqual(
+    await expect(service.ensurePackage("session-1", "wget", "present")).resolves.toEqual(
       expect.objectContaining({ ok: true, pm: "brew" }),
     );
     expect(deps.processService.execCommand).toHaveBeenLastCalledWith(
@@ -452,13 +489,13 @@ describe("createEnsureService", () => {
       durationMs: 1,
     });
 
-    await expect(
-      service.ensureService("session-1", "nginx", "disabled", "secret"),
-    ).resolves.toEqual({ ok: true });
+    await expect(service.ensureService("session-1", "nginx", "disabled")).resolves.toEqual({
+      ok: true,
+    });
     expect(deps.processService.execSudo).toHaveBeenLastCalledWith(
       "session-1",
       "chkconfig nginx off || update-rc.d nginx disable",
-      "secret",
+      undefined,
       undefined,
       undefined,
       expect.objectContaining({
@@ -560,7 +597,7 @@ describe("createEnsureService", () => {
     });
 
     await expect(
-      service.ensureLinesInFile("session-1", "/tmp/demo", ["beta"], true, "secret"),
+      service.ensureLinesInFile("session-1", "/tmp/demo", ["beta"], true),
     ).rejects.toMatchObject({ code: ErrorCode.EFS });
   });
 });

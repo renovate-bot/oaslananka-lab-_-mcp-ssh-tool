@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, jest, test } from "@jest/globals";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import fs from "fs";
 import { NodeSSH } from "node-ssh";
 import os from "os";
@@ -19,6 +19,12 @@ function createExecMap(entries: Record<string, ExecResponse | Error>) {
 function knownHostFingerprint(keyBlob: string, encoding: "base64" | "hex" = "base64") {
   const digest = createHash("sha256").update(Buffer.from(keyBlob, "base64")).digest(encoding);
   return encoding === "base64" ? digest.replace(/=+$/, "") : digest;
+}
+
+function hashedKnownHost(host: string) {
+  const salt = Buffer.from("session-test-salt");
+  const digest = createHmac("sha1", salt).update(host).digest("base64");
+  return `|1|${salt.toString("base64")}|${digest}`;
 }
 
 describe("SessionManager", () => {
@@ -155,8 +161,11 @@ describe("SessionManager", () => {
         "",
         `example.com ssh-ed25519 ${keyBlob}`,
         `*.example.org ssh-ed25519 ${keyBlob}`,
+        `${hashedKnownHost("hashed.example")} ssh-ed25519 ${keyBlob}`,
+        `${hashedKnownHost("badhashed.example:2222")} ssh-ed25519 ${otherKeyBlob}`,
         `@revoked revoked.example ssh-ed25519 ${keyBlob}`,
         `[other.example]:2222 ssh-ed25519 ${otherKeyBlob}`,
+        `nonstandard.example:2222 ssh-ed25519 ${otherKeyBlob}`,
       ].join("\n"),
       "utf8",
     );
@@ -198,6 +207,62 @@ describe("SessionManager", () => {
       ),
     ).toBe(true);
 
+    const hashedSession = await manager.openSession({
+      host: "hashed.example",
+      username: "demo",
+      password: "secret",
+      auth: "password",
+      knownHostsPath,
+    });
+    const hashedConfig = (
+      manager.getSession(hashedSession.sessionId)?.ssh as NodeSSH & {
+        __connectConfig?: Record<string, unknown>;
+      }
+    ).__connectConfig;
+    expect(
+      (hashedConfig?.hostVerifier as (fingerprint: string) => boolean)(
+        knownHostFingerprint(keyBlob),
+      ),
+    ).toBe(true);
+
+    const nonStandardSession = await manager.openSession({
+      host: "nonstandard.example",
+      port: 2222,
+      username: "demo",
+      password: "secret",
+      auth: "password",
+      knownHostsPath,
+    });
+    const nonStandardConfig = (
+      manager.getSession(nonStandardSession.sessionId)?.ssh as NodeSSH & {
+        __connectConfig?: Record<string, unknown>;
+      }
+    ).__connectConfig;
+    expect(
+      (nonStandardConfig?.hostVerifier as (fingerprint: string) => boolean)(
+        knownHostFingerprint(otherKeyBlob),
+      ),
+    ).toBe(false);
+
+    const nonStandardHashedSession = await manager.openSession({
+      host: "badhashed.example",
+      port: 2222,
+      username: "demo",
+      password: "secret",
+      auth: "password",
+      knownHostsPath,
+    });
+    const nonStandardHashedConfig = (
+      manager.getSession(nonStandardHashedSession.sessionId)?.ssh as NodeSSH & {
+        __connectConfig?: Record<string, unknown>;
+      }
+    ).__connectConfig;
+    expect(
+      (nonStandardHashedConfig?.hostVerifier as (fingerprint: string) => boolean)(
+        knownHostFingerprint(otherKeyBlob),
+      ),
+    ).toBe(false);
+
     const revokedSession = await manager.openSession({
       host: "revoked.example",
       username: "demo",
@@ -235,6 +300,49 @@ describe("SessionManager", () => {
         knownHostFingerprint(keyBlob),
       ),
     ).toBe(false);
+  });
+
+  test("gives explicit hostKeyPolicy precedence over deprecated strictHostKeyChecking", async () => {
+    const strictSession = await manager.openSession({
+      host: "strict.example",
+      username: "demo",
+      password: "secret",
+      auth: "password",
+      hostKeyPolicy: "strict",
+      strictHostKeyChecking: false,
+    });
+    const strictConfig = (
+      manager.getSession(strictSession.sessionId)?.ssh as NodeSSH & {
+        __connectConfig?: Record<string, unknown>;
+      }
+    ).__connectConfig;
+
+    expect(strictSession.hostKeyPolicy).toBe("strict");
+    expect(strictConfig).toEqual(
+      expect.objectContaining({
+        hostHash: "sha256",
+        hostVerifier: expect.any(Function),
+      }),
+    );
+
+    const insecureSession = await manager.openSession({
+      host: "insecure.example",
+      username: "demo",
+      password: "secret",
+      auth: "password",
+      hostKeyPolicy: "insecure",
+      strictHostKeyChecking: true,
+    });
+    const insecureConfig = (
+      manager.getSession(insecureSession.sessionId)?.ssh as NodeSSH & {
+        __connectConfig?: Record<string, unknown>;
+      }
+    ).__connectConfig;
+
+    expect(insecureSession.hostKeyPolicy).toBe("insecure");
+    expect((insecureConfig?.hostVerifier as (fingerprint: string) => boolean)("anything")).toBe(
+      true,
+    );
   });
 
   test("supports fingerprint pinning and explain-mode root denial", async () => {

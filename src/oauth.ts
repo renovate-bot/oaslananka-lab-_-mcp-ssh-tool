@@ -1,4 +1,10 @@
-import { createPublicKey, createVerify, type JsonWebKey } from "node:crypto";
+import {
+  createRemoteJWKSet,
+  errors as joseErrors,
+  jwtVerify,
+  type JWTPayload,
+  type JWTVerifyGetKey,
+} from "jose";
 import { extractBearerToken } from "./auth.js";
 
 export interface OAuthVerificationConfig {
@@ -6,13 +12,17 @@ export interface OAuthVerificationConfig {
   audience?: string;
   jwksUrl?: string;
   requiredScopes: string[];
+  allowedAlgorithms?: string[];
+  jwksTimeoutMs?: number;
+  jwksCooldownMs?: number;
+  jwksCacheMaxAgeMs?: number;
 }
 
-interface JwksResponse {
-  keys?: Array<JsonWebKey & { kid?: string; alg?: string }>;
-}
-
-const jwksCache = new Map<string, { expiresAt: number; jwks: JwksResponse }>();
+const DEFAULT_ALLOWED_ALGORITHMS = ["RS256"];
+const DEFAULT_JWKS_TIMEOUT_MS = 5000;
+const DEFAULT_JWKS_COOLDOWN_MS = 30_000;
+const DEFAULT_JWKS_CACHE_MAX_AGE_MS = 300_000;
+const jwksCache = new Map<string, JWTVerifyGetKey>();
 
 export async function isOAuthAuthorizationValid(
   authorization: string | undefined,
@@ -39,83 +49,54 @@ export async function verifyOAuthAuthorization(
     throw new Error("Missing bearer token");
   }
 
-  const [encodedHeader, encodedPayload, encodedSignature] = token.split(".");
-  if (!encodedHeader || !encodedPayload || !encodedSignature) {
-    throw new Error("Malformed JWT");
-  }
+  const algorithms = config.allowedAlgorithms ?? DEFAULT_ALLOWED_ALGORITHMS;
+  const { payload, protectedHeader } = await jwtVerify(token, getJwks(config), {
+    issuer: config.issuer,
+    audience: config.audience,
+    algorithms,
+    clockTolerance: "5s",
+    requiredClaims: ["iss", "aud", "exp", "iat"],
+  });
 
-  const header = parseBase64UrlJson(encodedHeader) as {
-    alg?: string;
-    kid?: string;
-    typ?: string;
-  };
-  if (header.alg !== "RS256") {
-    throw new Error("Unsupported JWT algorithm");
-  }
-  if (!header.kid) {
+  if (!protectedHeader.kid) {
     throw new Error("JWT kid is required");
   }
-
-  const payload = parseBase64UrlJson(encodedPayload);
-  const jwks = await fetchJwks(config.jwksUrl);
-  const jwk = jwks.keys?.find((key) => key.kid === header.kid);
-  if (!jwk) {
-    throw new Error("JWT signing key not found");
-  }
-
-  const publicKey = createPublicKey({ key: jwk, format: "jwk" });
-  const verifier = createVerify("RSA-SHA256");
-  verifier.update(`${encodedHeader}.${encodedPayload}`);
-  verifier.end();
-  if (!verifier.verify(publicKey, base64UrlToBuffer(encodedSignature))) {
-    throw new Error("JWT signature verification failed");
+  if (!protectedHeader.alg || !algorithms.includes(protectedHeader.alg)) {
+    throw new Error("Unsupported JWT algorithm");
   }
 
   validateClaims(payload, config);
   return payload;
 }
 
-function parseBase64UrlJson(value: string): Record<string, unknown> {
-  return JSON.parse(base64UrlToBuffer(value).toString("utf8")) as Record<string, unknown>;
-}
+function getJwks(config: OAuthVerificationConfig): JWTVerifyGetKey {
+  const key = [
+    config.jwksUrl,
+    config.jwksTimeoutMs ?? DEFAULT_JWKS_TIMEOUT_MS,
+    config.jwksCooldownMs ?? DEFAULT_JWKS_COOLDOWN_MS,
+    config.jwksCacheMaxAgeMs ?? DEFAULT_JWKS_CACHE_MAX_AGE_MS,
+  ].join("|");
 
-function base64UrlToBuffer(value: string): Buffer {
-  const padded = value.replace(/-/g, "+").replace(/_/g, "/");
-  return Buffer.from(padded, "base64");
-}
-
-async function fetchJwks(jwksUrl: string): Promise<JwksResponse> {
-  const cached = jwksCache.get(jwksUrl);
-  if (cached && cached.expiresAt > Date.now()) {
-    return cached.jwks;
+  const cached = jwksCache.get(key);
+  if (cached) {
+    return cached;
   }
 
-  const response = await fetch(jwksUrl);
-  if (!response.ok) {
-    throw new Error(`Failed to fetch JWKS: ${response.status}`);
-  }
-
-  const jwks = (await response.json()) as JwksResponse;
-  jwksCache.set(jwksUrl, { jwks, expiresAt: Date.now() + 5 * 60 * 1000 });
+  const jwks = createRemoteJWKSet(new URL(config.jwksUrl ?? ""), {
+    timeoutDuration: config.jwksTimeoutMs ?? DEFAULT_JWKS_TIMEOUT_MS,
+    cooldownDuration: config.jwksCooldownMs ?? DEFAULT_JWKS_COOLDOWN_MS,
+    cacheMaxAge: config.jwksCacheMaxAgeMs ?? DEFAULT_JWKS_CACHE_MAX_AGE_MS,
+  });
+  jwksCache.set(key, jwks);
   return jwks;
 }
 
-function validateClaims(payload: Record<string, unknown>, config: OAuthVerificationConfig): void {
-  const now = Math.floor(Date.now() / 1000);
+function validateClaims(payload: JWTPayload, config: OAuthVerificationConfig): void {
   if (payload.iss !== config.issuer) {
     throw new Error("JWT issuer mismatch");
   }
   if (!audienceMatches(payload.aud, config.audience ?? "")) {
     throw new Error("JWT audience mismatch");
-  }
-  if (typeof payload.exp !== "number" || payload.exp <= now) {
-    throw new Error("JWT is expired");
-  }
-  if (typeof payload.nbf === "number" && payload.nbf > now) {
-    throw new Error("JWT is not valid yet");
-  }
-  if (typeof payload.iat === "number" && payload.iat > now + 60) {
-    throw new Error("JWT issued-at time is in the future");
   }
 
   const scopes = extractScopes(payload);
@@ -130,7 +111,7 @@ function audienceMatches(audience: unknown, expected: string): boolean {
   return audience === expected || (Array.isArray(audience) && audience.includes(expected));
 }
 
-function extractScopes(payload: Record<string, unknown>): Set<string> {
+function extractScopes(payload: JWTPayload): Set<string> {
   const scopes = new Set<string>();
   if (typeof payload.scope === "string") {
     for (const scope of payload.scope.split(/\s+/).filter(Boolean)) {
@@ -150,4 +131,11 @@ function extractScopes(payload: Record<string, unknown>): Set<string> {
     }
   }
   return scopes;
+}
+
+export function normalizeOAuthError(error: unknown): Error {
+  if (error instanceof joseErrors.JOSEError) {
+    return new Error(error.message);
+  }
+  return error instanceof Error ? error : new Error(String(error));
 }

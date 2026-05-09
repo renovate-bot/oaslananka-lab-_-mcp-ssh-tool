@@ -111,21 +111,31 @@ jobs:
           path: coverage
           if-no-files-found: ignore
 
-      - name: Install Doppler CLI
-        if: matrix.node == '24.14.1' && env.HAS_DOPPLER_TOKEN == 'true'
-        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
-
       - name: Export Codecov token from Doppler
         if: matrix.node == '24.14.1' && env.HAS_DOPPLER_TOKEN == 'true'
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -- bash <<'BASH'
           set -euo pipefail
+          secrets_json="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${DOPPLER_TOKEN}" \
+              --get "https://api.doppler.com/v3/configs/config/secrets/download" \
+              --data-urlencode "project=${DOPPLER_PROJECT}" \
+              --data-urlencode "config=${DOPPLER_CONFIG}" \
+              --data-urlencode "format=json"
+          )"
+          CODECOV_TOKEN="$(
+            SECRETS_JSON="${secrets_json}" python3 - <<'PY'
+          import json
+          import os
+
+          print(json.loads(os.environ["SECRETS_JSON"]).get("CODECOV_TOKEN", ""))
+          PY
+          )"
           test -n "${CODECOV_TOKEN:-}"
           echo "::add-mask::$CODECOV_TOKEN"
           printf 'CODECOV_TOKEN=%s\n' "$CODECOV_TOKEN" >> "$GITHUB_ENV"
-          BASH
 
       - name: Upload coverage to Codecov
         if: matrix.node == '24.14.1' && env.HAS_DOPPLER_TOKEN == 'true'

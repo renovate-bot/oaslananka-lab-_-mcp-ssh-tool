@@ -13,7 +13,7 @@ describe("shell helpers", () => {
 
     expect(command).toContain("bash -lc");
     expect(command).toContain("/tmp/demo");
-    expect(command).toContain("NAME=");
+    expect(command).toContain("export NAME=");
     expect(command).toContain("value");
   });
 
@@ -54,7 +54,7 @@ describe("shell helpers", () => {
     ).toContain("bash -lc");
   });
 
-  test("buildSudoCommand supports passwords and rejects windows", () => {
+  test("buildSudoCommand never embeds sudo passwords and rejects windows", () => {
     const command = buildSudoCommand(
       "apt-get update",
       {
@@ -67,11 +67,12 @@ describe("shell helpers", () => {
         init: "systemd",
         defaultShell: "bash",
       },
-      "secret",
       "/tmp",
     );
 
-    expect(command).toContain("sudo -S -n");
+    expect(command).toContain("sudo -n");
+    expect(command).not.toContain("sudo -S");
+    expect(command).not.toContain("secret");
     expect(command).toContain("/tmp");
     expect(() =>
       buildSudoCommand("dir", {
@@ -84,6 +85,25 @@ describe("shell helpers", () => {
         init: "windows-service",
       }),
     ).toThrow("Sudo is not supported");
+  });
+
+  test.each([["A=B"], ["A;id"], ["A$(id)"], ["A name"], [""]])(
+    "rejects invalid environment variable key %p",
+    (key) => {
+      expect(() => buildPosixCommand("echo hi", undefined, { [key]: "value" })).toThrow(
+        "Invalid environment variable name",
+      );
+      expect(() => buildPowerShellCommand("Write-Host hi", undefined, { [key]: "value" })).toThrow(
+        "Invalid environment variable name",
+      );
+    },
+  );
+
+  test.each(["_A", "A1", "PATH_SAFE"])("accepts safe environment variable key %p", (key) => {
+    expect(buildPosixCommand("echo hi", undefined, { [key]: "value" })).toContain(`export ${key}=`);
+    expect(buildPowerShellCommand("Write-Host hi", undefined, { [key]: "value" })).toContain(
+      `$env:${key}`,
+    );
   });
 
   test("resolveRemoteTempDir falls back by platform", () => {

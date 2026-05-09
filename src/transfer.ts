@@ -5,6 +5,7 @@ import type { SFTPWrapper, Stats } from "ssh2";
 import { createFilesystemError } from "./errors.js";
 import { logger } from "./logging.js";
 import type { MetricsCollector } from "./metrics.js";
+import type { ServerConfig } from "./config.js";
 import type { PolicyAction, PolicyEngine } from "./policy.js";
 import type { SessionManager } from "./session.js";
 import { SSHMCPError, type PolicyMode } from "./types.js";
@@ -50,6 +51,7 @@ export interface TransferServiceDeps {
   sessionManager: Pick<SessionManager, "getSession">;
   metrics: Pick<MetricsCollector, "recordTransfer">;
   policy: Pick<PolicyEngine, "assertAllowed">;
+  config: Pick<ServerConfig, "maxTransferBytes">;
 }
 
 interface LocalWritePath {
@@ -201,6 +203,7 @@ export function createTransferService({
   sessionManager,
   metrics,
   policy,
+  config,
 }: TransferServiceDeps): TransferService {
   async function uploadFileWithProgress(
     localPath: string,
@@ -251,6 +254,12 @@ export function createTransferService({
     try {
       const stats = await fs.promises.stat(canonicalLocalPath);
       const totalSize = stats.size;
+      if (totalSize > config.maxTransferBytes) {
+        throw createFilesystemError(
+          `Transfer exceeds maxTransferBytes (${config.maxTransferBytes})`,
+          "Use a smaller file or raise SSH_MCP_MAX_TRANSFER_BYTES intentionally.",
+        );
+      }
       const fileContent = await fs.promises.readFile(canonicalLocalPath);
       const localSha256 = sha256(fileContent);
 
@@ -353,6 +362,12 @@ export function createTransferService({
       const targetPath = await authorizeLocalWritePath(localPath, session.info.policyMode, policy);
       const stats = await sftpStat(session.sftp, remotePath);
       const totalSize = stats.size ?? 0;
+      if (totalSize > config.maxTransferBytes) {
+        throw createFilesystemError(
+          `Transfer exceeds maxTransferBytes (${config.maxTransferBytes})`,
+          "Use a smaller file or raise SSH_MCP_MAX_TRANSFER_BYTES intentionally.",
+        );
+      }
       const data = await sftpReadFile(session.sftp, remotePath);
       const remoteSha256 = sha256(data);
       const tempLocalPath = `${targetPath.absolutePath}.tmp.${Date.now()}`;

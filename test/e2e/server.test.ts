@@ -6,7 +6,7 @@
  *
  * Quick start with Docker:
  * docker-compose up -d ssh-server
- * npm run test:e2e
+ * pnpm run test:e2e
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "@jest/globals";
@@ -49,6 +49,8 @@ e2eDescribe("SSH MCP Server E2E Tests", () => {
         commandDeny: [],
         pathAllowPrefixes: ["/tmp"],
         pathDenyPrefixes: [],
+        localPathAllowPrefixes: [],
+        localPathDenyPrefixes: [],
       },
     });
     processService = createProcessService({
@@ -137,7 +139,7 @@ e2eDescribe("SSH MCP Server E2E Tests", () => {
   test("handles command timeout", async () => {
     await expect(
       processService.execCommand(sessionId, "sleep 10", undefined, undefined, 1000),
-    ).rejects.toThrow(/timeout/i);
+    ).rejects.toMatchObject({ code: "ETIMEOUT" });
   });
 
   test("writes, reads, stats, lists, and cleans up files", async () => {

@@ -80,7 +80,7 @@ If the operation is intentional, prefer a narrower policy change such as a comma
 
 ## `fs_read` Says The File Is Too Large
 
-`fs_read` is text-focused and limited by `SSH_MCP_MAX_FILE_SIZE`. Use `file_download` for large files; it verifies SHA-256 integrity after transfer.
+`fs_read` is text-focused and limited by `SSH_MCP_MAX_FILE_SIZE`. `file_upload` and `file_download` are bounded by `SSH_MCP_MAX_TRANSFER_BYTES` and verify SHA-256 integrity after transfer.
 
 ## SFTP Is Unavailable
 

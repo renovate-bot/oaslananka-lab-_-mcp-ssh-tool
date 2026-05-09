@@ -27,6 +27,35 @@ if [[ "$ALLOW_OFFLINE" == "1" && "$LIVE_CHECK" != "1" ]]; then
 fi
 
 if ! command -v doppler >/dev/null 2>&1; then
+  if [[ -n "${DOPPLER_TOKEN:-}" ]]; then
+    secrets_json="$(
+      curl -fsSL \
+        -H "Authorization: Bearer ${DOPPLER_TOKEN}" \
+        --get "https://api.doppler.com/v3/configs/config/secrets/download" \
+        --data-urlencode "project=${DOPPLER_PROJECT}" \
+        --data-urlencode "config=${DOPPLER_CONFIG}" \
+        --data-urlencode "format=json"
+    )"
+    missing=0
+    for secret_name in "${REQUIRED_SECRETS[@]}"; do
+      if SECRET_NAME="${secret_name}" SECRETS_JSON="${secrets_json}" python3 - <<'PY'
+import json
+import os
+import sys
+
+payload = json.loads(os.environ["SECRETS_JSON"])
+sys.exit(0 if payload.get(os.environ["SECRET_NAME"]) else 1)
+PY
+      then
+        echo "Verified Doppler secret: $secret_name"
+      else
+        echo "Missing Doppler secret: $secret_name" >&2
+        missing=1
+      fi
+    done
+    exit "$missing"
+  fi
+
   if [[ "$ALLOW_OFFLINE" == "1" ]]; then
     echo "Doppler CLI is not installed; validated inventory only."
     printf '  - %s\n' "${REQUIRED_SECRETS[@]}"

@@ -31,10 +31,10 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json -w",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "jest --testPathPatterns=unit --runInBand",
-    "test:coverage": "jest --coverage --testPathPatterns=unit --runInBand",
-    "test:integration": "jest --testPathPatterns=integration --runInBand",
-    "test:e2e": "jest --testPathPatterns=e2e --runInBand",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=unit --runInBand",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --testPathPatterns=unit --runInBand",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=integration --runInBand",
+    "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=e2e --runInBand",
     "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
     "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
     "lint:staged": "node scripts/run-staged-checks.mjs --lint-only",
@@ -102,8 +102,9 @@
     "@opentelemetry/resources": "^2.7.0",
     "@opentelemetry/sdk-node": "^0.215.0",
     "@opentelemetry/semantic-conventions": "^1.40.0",
+    "jose": "6.2.3",
     "node-ssh": "^13.2.1",
-    "zod": "^4.3.6"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@commitlint/cli": "^19.8.1",
@@ -116,9 +117,9 @@
     "eslint": "^9.39.4",
     "jest": "^30.3.0",
     "prettier": "^3.8.3",
+    "release-please": "^17.6.0",
     "ts-jest": "^29.4.9",
-    "typescript": "^5.9.3",
-    "release-please": "^17.6.0"
+    "typescript": "^5.9.3"
   },
   "jest": {
     "preset": "ts-jest/presets/default-esm",
@@ -150,7 +151,8 @@
       "src/**/*.ts",
       "!src/**/*.d.ts",
       "!src/index.ts",
-      "!src/server-http.ts"
+      "!src/server-http.ts",
+      "!src/render-http.ts"
     ],
     "coverageDirectory": "coverage",
     "coverageReporters": [
@@ -161,16 +163,10 @@
     ],
     "coverageThreshold": {
       "global": {
-        "branches": 70,
-        "functions": 75,
-        "lines": 75,
-        "statements": 75
-      },
-      "src/tools/": {
-        "branches": 65,
-        "functions": 70,
-        "lines": 70,
-        "statements": 70
+        "branches": 76,
+        "functions": 85,
+        "lines": 90,
+        "statements": 90
       }
     },
     "reporters": [

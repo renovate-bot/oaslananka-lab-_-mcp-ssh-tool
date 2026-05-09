@@ -66,7 +66,6 @@ export class ProcessToolProvider implements ToolProvider {
               type: "string",
               description: "Command to execute with sudo",
             },
-            password: { type: "string", description: "Sudo password" },
             cwd: { type: "string", description: "Working directory" },
             timeoutMs: {
               type: "number",
@@ -139,7 +138,7 @@ export class ProcessToolProvider implements ToolProvider {
     const result = await this.deps.processService.execSudo(
       params.sessionId,
       params.command,
-      params.password,
+      undefined,
       params.cwd,
       params.timeoutMs,
     );

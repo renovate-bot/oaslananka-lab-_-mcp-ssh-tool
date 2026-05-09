@@ -21,8 +21,14 @@ export interface ServerConfig {
   cleanupIntervalMs: number;
   /** Default command timeout in milliseconds */
   commandTimeoutMs: number;
+  /** Maximum buffered stdout/stderr per command result (bytes) */
+  maxCommandOutputBytes: number;
+  /** Maximum streaming chunks retained in memory */
+  maxStreamChunks: number;
   /** Maximum file size for read operations (bytes) */
   maxFileSize: number;
+  /** Maximum file transfer size (bytes) */
+  maxTransferBytes: number;
   /** Enable debug logging */
   debug: boolean;
   /** Rate limiting configuration */
@@ -74,7 +80,10 @@ export const DEFAULT_CONFIG: ServerConfig = {
   sessionTtlMs: 900000, // 15 minutes
   cleanupIntervalMs: 10000, // 10 seconds
   commandTimeoutMs: 30000, // 30 seconds
+  maxCommandOutputBytes: 1024 * 1024, // 1MB
+  maxStreamChunks: 4096,
   maxFileSize: 10 * 1024 * 1024, // 10MB
+  maxTransferBytes: 50 * 1024 * 1024, // 50MB
   debug: false,
   rateLimit: {
     enabled: true,
@@ -181,11 +190,15 @@ function loadPolicyFile(filePath: string | undefined): Partial<PolicyConfig> {
     const raw = fs.readFileSync(filePath, "utf8");
     return JSON.parse(raw) as Partial<PolicyConfig>;
   } catch (error) {
-    logger.warn("Failed to load policy file; using environment/default policy", {
+    logger.error("Failed to load explicitly configured policy file", {
       filePath,
       error,
     });
-    return {};
+    throw new Error(
+      `Invalid SSH_MCP_POLICY_FILE ${filePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
   }
 }
 
@@ -218,7 +231,19 @@ export class ConfigManager {
       process.env.SSH_MCP_COMMAND_TIMEOUT,
       config.commandTimeoutMs,
     );
+    config.maxCommandOutputBytes = parseInteger(
+      process.env.SSH_MCP_MAX_COMMAND_OUTPUT_BYTES,
+      config.maxCommandOutputBytes,
+    );
+    config.maxStreamChunks = parseInteger(
+      process.env.SSH_MCP_MAX_STREAM_CHUNKS,
+      config.maxStreamChunks,
+    );
     config.maxFileSize = parseInteger(process.env.SSH_MCP_MAX_FILE_SIZE, config.maxFileSize);
+    config.maxTransferBytes = parseInteger(
+      process.env.SSH_MCP_MAX_TRANSFER_BYTES,
+      config.maxTransferBytes,
+    );
     config.debug = parseBoolean(process.env.SSH_MCP_DEBUG, config.debug);
     config.rateLimit.enabled = parseBoolean(
       process.env.SSH_MCP_RATE_LIMIT,

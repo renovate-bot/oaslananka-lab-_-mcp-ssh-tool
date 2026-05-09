@@ -1,6 +1,10 @@
 import { createSign, generateKeyPairSync, type JsonWebKey, type KeyLike } from "node:crypto";
 import { afterEach, describe, expect, test } from "@jest/globals";
-import { verifyOAuthAuthorization } from "../../src/oauth.js";
+import {
+  isOAuthAuthorizationValid,
+  normalizeOAuthError,
+  verifyOAuthAuthorization,
+} from "../../src/oauth.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -9,6 +13,32 @@ afterEach(() => {
 });
 
 describe("OAuth verification", () => {
+  test("fails closed when OAuth configuration or bearer token is missing", async () => {
+    await expect(
+      verifyOAuthAuthorization("Bearer token", {
+        requiredScopes: [],
+      }),
+    ).rejects.toThrow("OAuth issuer, audience, and JWKS URL are required");
+
+    await expect(
+      verifyOAuthAuthorization(undefined, {
+        issuer: "https://auth.example",
+        audience: "https://mcp.example/mcp",
+        jwksUrl: "https://auth.example/.well-known/jwks.json?missing",
+        requiredScopes: [],
+      }),
+    ).rejects.toThrow("Missing bearer token");
+
+    await expect(
+      isOAuthAuthorizationValid(undefined, {
+        issuer: "https://auth.example",
+        audience: "https://mcp.example/mcp",
+        jwksUrl: "https://auth.example/.well-known/jwks.json?missing-valid",
+        requiredScopes: [],
+      }),
+    ).resolves.toBe(false);
+  });
+
   test("accepts a valid RS256 JWT with issuer audience and required scope", async () => {
     const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const jwk = publicKey.export({ format: "jwk" }) as JsonWebKey & { kid?: string };
@@ -30,6 +60,7 @@ describe("OAuth verification", () => {
         iss: "https://auth.example",
         aud: "https://mcp.example/mcp",
         exp: now + 300,
+        iat: now,
         scope: "mcp-ssh-tool.read",
       },
       privateKey,
@@ -42,6 +73,59 @@ describe("OAuth verification", () => {
         jwksUrl: "https://auth.example/.well-known/jwks.json",
         requiredScopes: ["mcp-ssh-tool.read"],
       }),
+    ).resolves.toEqual(expect.objectContaining({ iss: "https://auth.example" }));
+  });
+
+  test("accepts audience arrays and scp claim variants", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const jwk = publicKey.export({ format: "jwk" }) as JsonWebKey & { kid?: string };
+    jwk.kid = "test-key-scp";
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ keys: [jwk] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    const now = Math.floor(Date.now() / 1000);
+    const config = {
+      issuer: "https://auth.example",
+      audience: "https://mcp.example/mcp",
+      jwksUrl: "https://auth.example/.well-known/jwks.json?scp",
+      requiredScopes: ["mcp-ssh-tool.read", "mcp-ssh-tool.write"],
+    };
+
+    await expect(
+      verifyOAuthAuthorization(
+        `Bearer ${signJwt(
+          { alg: "RS256", kid: "test-key-scp" },
+          {
+            iss: "https://auth.example",
+            aud: ["https://other.example", "https://mcp.example/mcp"],
+            exp: now + 300,
+            iat: now,
+            scp: ["mcp-ssh-tool.read", "mcp-ssh-tool.write", 123],
+          },
+          privateKey,
+        )}`,
+        config,
+      ),
+    ).resolves.toEqual(expect.objectContaining({ iss: "https://auth.example" }));
+
+    await expect(
+      verifyOAuthAuthorization(
+        `Bearer ${signJwt(
+          { alg: "RS256", kid: "test-key-scp" },
+          {
+            iss: "https://auth.example",
+            aud: ["https://mcp.example/mcp"],
+            exp: now + 300,
+            iat: now,
+            scp: "mcp-ssh-tool.read mcp-ssh-tool.write",
+          },
+          privateKey,
+        )}`,
+        { ...config, jwksUrl: "https://auth.example/.well-known/jwks.json?scp-string" },
+      ),
     ).resolves.toEqual(expect.objectContaining({ iss: "https://auth.example" }));
   });
 
@@ -62,6 +146,7 @@ describe("OAuth verification", () => {
         iss: "https://auth.example",
         aud: "https://mcp.example/mcp",
         exp: now + 300,
+        iat: now,
         scope: "other.scope",
       },
       privateKey,
@@ -104,13 +189,14 @@ describe("OAuth verification", () => {
             iss: "https://auth.example",
             aud: "https://wrong.example/mcp",
             exp: now + 300,
+            iat: now,
             scope: "mcp-ssh-tool.read",
           },
           privateKey,
         )}`,
         config,
       ),
-    ).rejects.toThrow("audience");
+    ).rejects.toThrow(/aud|audience/i);
 
     await expect(
       verifyOAuthAuthorization(
@@ -119,14 +205,15 @@ describe("OAuth verification", () => {
           {
             iss: "https://auth.example",
             aud: "https://mcp.example/mcp",
-            exp: now - 1,
+            exp: now - 60,
+            iat: now - 120,
             scope: "mcp-ssh-tool.read",
           },
           privateKey,
         )}`,
         config,
       ),
-    ).rejects.toThrow("expired");
+    ).rejects.toThrow(/exp|expired/i);
 
     await expect(
       verifyOAuthAuthorization(
@@ -136,6 +223,7 @@ describe("OAuth verification", () => {
             iss: "https://auth.example",
             aud: "https://mcp.example/mcp",
             exp: now + 300,
+            iat: now,
             scope: "mcp-ssh-tool.read",
           },
           otherKeyPair.privateKey,
@@ -143,6 +231,123 @@ describe("OAuth verification", () => {
         config,
       ),
     ).rejects.toThrow("signature");
+  });
+
+  test("rejects wrong issuer, wrong algorithm, unknown kid, malformed JWKS, and JWKS timeout", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const jwk = publicKey.export({ format: "jwk" }) as JsonWebKey & { kid?: string };
+    jwk.kid = "test-key-hardening";
+    const now = Math.floor(Date.now() / 1000);
+    const basePayload = {
+      iss: "https://auth.example",
+      aud: "https://mcp.example/mcp",
+      exp: now + 300,
+      iat: now,
+      scope: "mcp-ssh-tool.read",
+    };
+    const config = {
+      issuer: "https://auth.example",
+      audience: "https://mcp.example/mcp",
+      jwksUrl: "https://auth.example/.well-known/jwks.json?hardening",
+      requiredScopes: ["mcp-ssh-tool.read"],
+    };
+
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ keys: [jwk] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    await expect(
+      verifyOAuthAuthorization(
+        `Bearer ${signJwt(
+          { alg: "RS256", kid: "test-key-hardening" },
+          { ...basePayload, iss: "https://issuer.example" },
+          privateKey,
+        )}`,
+        config,
+      ),
+    ).rejects.toThrow(/iss|issuer/i);
+
+    await expect(
+      verifyOAuthAuthorization(
+        `Bearer ${signJwt({ alg: "HS256", kid: "test-key-hardening" }, basePayload, privateKey)}`,
+        config,
+      ),
+    ).rejects.toThrow(/alg|algorithm/i);
+
+    await expect(
+      verifyOAuthAuthorization(
+        `Bearer ${signJwt({ alg: "RS256", kid: "unknown-key" }, basePayload, privateKey)}`,
+        config,
+      ),
+    ).rejects.toThrow(/key|kid|signature/i);
+
+    globalThis.fetch = async () =>
+      new Response("{", {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    await expect(
+      verifyOAuthAuthorization(
+        `Bearer ${signJwt({ alg: "RS256", kid: "test-key-hardening" }, basePayload, privateKey)}`,
+        {
+          ...config,
+          jwksUrl: "https://auth.example/.well-known/jwks.json?malformed",
+        },
+      ),
+    ).rejects.toThrow();
+
+    globalThis.fetch = async (_input: string | URL | Request, init?: RequestInit) =>
+      await new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted")));
+      });
+    await expect(
+      verifyOAuthAuthorization(
+        `Bearer ${signJwt({ alg: "RS256", kid: "test-key-hardening" }, basePayload, privateKey)}`,
+        {
+          ...config,
+          jwksUrl: "https://auth.example/.well-known/jwks.json?timeout",
+          jwksTimeoutMs: 1,
+        },
+      ),
+    ).rejects.toThrow();
+  });
+
+  test("rejects tokens without kid and normalizes non-Error OAuth failures", async () => {
+    const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const jwk = publicKey.export({ format: "jwk" }) as JsonWebKey & { kid?: string };
+    jwk.kid = "test-key-no-kid";
+    globalThis.fetch = async () =>
+      new Response(JSON.stringify({ keys: [jwk] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+
+    const now = Math.floor(Date.now() / 1000);
+    await expect(
+      verifyOAuthAuthorization(
+        `Bearer ${signJwt(
+          { alg: "RS256" },
+          {
+            iss: "https://auth.example",
+            aud: "https://mcp.example/mcp",
+            exp: now + 300,
+            iat: now,
+          },
+          privateKey,
+        )}`,
+        {
+          issuer: "https://auth.example",
+          audience: "https://mcp.example/mcp",
+          jwksUrl: "https://auth.example/.well-known/jwks.json?no-kid",
+          requiredScopes: [],
+        },
+      ),
+    ).rejects.toThrow(/kid|key/i);
+
+    expect(normalizeOAuthError("bad")).toEqual(new Error("bad"));
+    expect(normalizeOAuthError(new Error("kept")).message).toBe("kept");
   });
 });
 

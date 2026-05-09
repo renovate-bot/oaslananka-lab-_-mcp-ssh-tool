@@ -20,8 +20,8 @@ const CONFIG_PATHS = {
 const MCP_CONFIG = {
   name: "io.github.oaslananka/mcp-ssh-tool",
   description: "Secure SSH MCP automation server",
-  command: "npx",
-  args: ["-y", "mcp-ssh-tool"],
+  command: "pnpm",
+  args: ["dlx", "mcp-ssh-tool"],
   env: {},
 };
 

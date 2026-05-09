@@ -2,12 +2,12 @@
 
 ## Quick Installation
 
-### NPM Installation (Recommended)
+### pnpm Installation (Recommended)
 
 Install globally to use as a command-line tool:
 
 ```bash
-npm install -g mcp-ssh-tool
+pnpm add --global mcp-ssh-tool
 ```
 
 Verify installation:
@@ -27,7 +27,7 @@ codex mcp add ssh-mcp -- mcp-ssh-tool
 If you do not want a global install, use:
 
 ```bash
-codex mcp add ssh-mcp -- npx -y mcp-ssh-tool
+codex mcp add ssh-mcp -- pnpm dlx mcp-ssh-tool
 ```
 
 Verify the registration:
@@ -41,7 +41,7 @@ Optional hardened setup:
 
 ```bash
 codex mcp remove ssh-mcp
-codex mcp add ssh-mcp --env STRICT_HOST_KEY_CHECKING=true -- mcp-ssh-tool
+codex mcp add ssh-mcp --env SSH_MCP_HOST_KEY_POLICY=strict -- mcp-ssh-tool
 ```
 
 ## VS Code Setup
@@ -119,8 +119,8 @@ Example `mcpServers` schema:
 {
   "mcpServers": {
     "ssh-mcp-server": {
-      "command": "npx",
-      "args": ["-y", "mcp-ssh-tool"]
+      "command": "pnpm",
+      "args": ["dlx", "mcp-ssh-tool"]
     }
   }
 }
@@ -157,7 +157,7 @@ Once configured, you can use natural language commands with GitHub Copilot:
 ## Prerequisites
 
 ### System Requirements
-- Node.js 20 or later
+- Node.js `22.22.2+` or `24.14.1+`
 - VS Code with GitHub Copilot extension
 - SSH access to target systems
 
@@ -231,8 +231,8 @@ chmod 644 ~/.ssh/public_key.pub
 which mcp-ssh-tool
 
 # Reinstall if needed
-npm uninstall -g mcp-ssh-tool
-npm install -g mcp-ssh-tool
+pnpm remove --global mcp-ssh-tool
+pnpm add --global mcp-ssh-tool
 ```
 
 ### Debug Mode
@@ -270,23 +270,23 @@ git clone https://github.com/oaslananka-lab/mcp-ssh-tool.git
 cd mcp-ssh-tool
 
 # Install dependencies
-npm install
+pnpm install --frozen-lockfile
 
 # Build project
-npm run build
+pnpm run build
 
 # Link for global use
-npm link
+pnpm link --global
 ```
 
 ### Running Tests
 
 ```bash
 # Unit tests
-npm test
+pnpm test
 
 # E2E tests (requires SSH server)
-RUN_SSH_E2E=1 npm run test:e2e
+RUN_SSH_E2E=1 pnpm run test:e2e
 ```
 
 ## Environment Variables
@@ -294,8 +294,12 @@ RUN_SSH_E2E=1 npm run test:e2e
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `LOG_LEVEL` | Logging level (error, warn, info, debug) | info |
-| `SSH_MCP_DAEMON` | Run in daemon mode | false |
-| `SSH_MCP_ONESHOT` | Exit after processing one command | false |
+| `SSH_MCP_HOST_KEY_POLICY` | Host-key verification policy: `strict`, `accept-new`, or `insecure` | strict |
+| `SSH_MCP_KNOWN_HOSTS_PATH` | Known-hosts file used by strict verification | `~/.ssh/known_hosts` |
+| `SSH_MCP_COMMAND_TIMEOUT` | Default command timeout in milliseconds | 30000 |
+| `SSH_MCP_MAX_COMMAND_OUTPUT_BYTES` | Max retained stdout/stderr bytes per command | 1048576 |
+| `SSH_MCP_MAX_STREAM_CHUNKS` | Max retained streaming chunks | 4096 |
+| `SSH_MCP_MAX_TRANSFER_BYTES` | Max transfer size for upload/download tools | 52428800 |
 
 ## Support
 

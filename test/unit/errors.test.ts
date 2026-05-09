@@ -4,10 +4,14 @@ import {
   createBadRequestError,
   createConnectionError,
   createFilesystemError,
+  createHostKeyError,
+  createLimitError,
   createPackageManagerError,
   createPatchError,
+  createPolicyError,
   createSudoError,
   createTimeoutError,
+  createUnsupportedError,
   wrapError,
 } from "../../src/errors.js";
 import { ErrorCode, SSHMCPError } from "../../src/types.js";
@@ -22,6 +26,10 @@ describe("error helpers", () => {
     expect(createFilesystemError("fs").code).toBe(ErrorCode.EFS);
     expect(createPatchError("patch").code).toBe(ErrorCode.EPATCH);
     expect(createBadRequestError("bad").recoverable).toBe(false);
+    expect(createPolicyError("policy").code).toBe(ErrorCode.EPOLICY);
+    expect(createHostKeyError("host key").code).toBe(ErrorCode.EHOSTKEY);
+    expect(createLimitError("limit").code).toBe(ErrorCode.ELIMIT);
+    expect(createUnsupportedError("unsupported").code).toBe(ErrorCode.EUNSUPPORTED);
   });
 
   test("wrapError preserves SSHMCPError instances", () => {
@@ -41,5 +49,13 @@ describe("error helpers", () => {
         message: "boom",
       }),
     );
+  });
+
+  test("wrapError converts non-error values", () => {
+    const wrapped = wrapError("plain failure", ErrorCode.EBADREQ);
+
+    expect(wrapped.code).toBe(ErrorCode.EBADREQ);
+    expect(wrapped.message).toBe("plain failure");
+    expect(wrapped.recoverable).toBe(true);
   });
 });

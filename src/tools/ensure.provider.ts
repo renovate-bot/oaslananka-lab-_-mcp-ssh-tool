@@ -41,10 +41,6 @@ export class EnsureToolProvider implements ToolProvider {
               enum: ["present", "absent"],
               description: "Desired state",
             },
-            sudoPassword: {
-              type: "string",
-              description: "Optional sudo password",
-            },
           },
           required: ["sessionId", "name"],
         },
@@ -68,10 +64,6 @@ export class EnsureToolProvider implements ToolProvider {
               type: "string",
               enum: ["started", "stopped", "restarted", "enabled", "disabled"],
               description: "Desired state",
-            },
-            sudoPassword: {
-              type: "string",
-              description: "Optional sudo password",
             },
           },
           required: ["sessionId", "name", "state"],
@@ -106,10 +98,6 @@ export class EnsureToolProvider implements ToolProvider {
               type: "boolean",
               description: "Create file if it does not exist",
             },
-            sudoPassword: {
-              type: "string",
-              description: "Optional sudo password",
-            },
           },
           required: ["sessionId", "path", "lines"],
         },
@@ -132,10 +120,6 @@ export class EnsureToolProvider implements ToolProvider {
             diff: {
               type: "string",
               description: "Patch content (unified diff format)",
-            },
-            sudoPassword: {
-              type: "string",
-              description: "Optional sudo password",
             },
           },
           required: ["sessionId", "path", "diff"],
@@ -164,7 +148,6 @@ export class EnsureToolProvider implements ToolProvider {
     const result = await this.deps.ensureService.ensurePackage(
       params.sessionId,
       params.name,
-      params.sudoPassword,
       params.state,
     );
     logger.info("Package ensured", {
@@ -181,7 +164,6 @@ export class EnsureToolProvider implements ToolProvider {
       params.sessionId,
       params.name,
       params.state,
-      params.sudoPassword,
     );
     logger.info("Service ensured", {
       sessionId: params.sessionId,
@@ -198,7 +180,6 @@ export class EnsureToolProvider implements ToolProvider {
       params.path,
       params.lines,
       params.createIfMissing,
-      params.sudoPassword,
       params.state,
     );
     logger.info("Lines ensured in file", {
@@ -215,7 +196,6 @@ export class EnsureToolProvider implements ToolProvider {
       params.sessionId,
       params.path,
       params.diff,
-      params.sudoPassword,
     );
     logger.info("Patch applied", {
       sessionId: params.sessionId,

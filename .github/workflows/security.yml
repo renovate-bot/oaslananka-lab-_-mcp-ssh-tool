@@ -280,9 +280,6 @@ jobs:
       - name: Skip when Doppler bootstrap token is unavailable
         if: env.HAS_DOPPLER_TOKEN != 'true'
         run: echo "DOPPLER_TOKEN is unavailable for this event; skipping live Doppler check."
-      - name: Install Doppler CLI
-        if: env.HAS_DOPPLER_TOKEN == 'true'
-        run: curl -Ls https://cli.doppler.com/install.sh | sudo sh
       - name: Validate Doppler inventory
         if: env.HAS_DOPPLER_TOKEN == 'true'
         env:
@@ -293,7 +290,22 @@ jobs:
         env:
           DOPPLER_TOKEN: ${{ secrets.DOPPLER_TOKEN }}
         run: |
-          doppler run -- bash <<'BASH'
           set -euo pipefail
-          test -n "${SAFETY_API_KEY:-}" && echo "SAFETY_API_KEY injected through Doppler."
-          BASH
+          secrets_json="$(
+            curl -fsSL \
+              -H "Authorization: Bearer ${DOPPLER_TOKEN}" \
+              --get "https://api.doppler.com/v3/configs/config/secrets/download" \
+              --data-urlencode "project=${DOPPLER_PROJECT}" \
+              --data-urlencode "config=${DOPPLER_CONFIG}" \
+              --data-urlencode "format=json"
+          )"
+          safety_present="$(
+            SECRETS_JSON="${secrets_json}" python3 - <<'PY'
+          import json
+          import os
+
+          print("1" if json.loads(os.environ["SECRETS_JSON"]).get("SAFETY_API_KEY") else "")
+          PY
+          )"
+          test -n "${safety_present:-}"
+          echo "SAFETY_API_KEY is available through Doppler."
