@@ -113,7 +113,7 @@ jobs:
           RELEASE_TAG: ${{ needs.release.outputs.tag_name }}
         run: |
           set -euo pipefail
-          gh release upload "$RELEASE_TAG" artifacts/* --repo "$GITHUB_REPOSITORY"
+          gh release upload "$RELEASE_TAG" artifacts/* --repo "$GITHUB_REPOSITORY" --clobber
 
       - name: Publish to npm with trusted publishing
         if: ${{ vars.AUTO_RELEASE_PUBLISH == 'true' }}

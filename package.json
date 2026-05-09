@@ -46,7 +46,7 @@
     "e2e:docker": "docker compose up -d ssh-server && pnpm run test:e2e",
     "integration:docker": "docker compose up -d ssh-server && pnpm run test:integration",
     "docs": "pnpm exec typedoc --options typedoc.json",
-    "start:http": "node dist/server-http.js",
+    "start:http": "node dist/render-http.js",
     "setup:chatgpt": "node scripts/setup-chatgpt.mjs",
     "sync-version": "node scripts/sync-version.mjs",
     "validate:mcp-metadata": "node scripts/validate-mcp-metadata.mjs",

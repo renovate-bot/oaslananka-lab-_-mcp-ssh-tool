@@ -24,6 +24,7 @@ interface HttpSession {
 const endpoint = "/mcp";
 const legacySseEndpoint = "/sse";
 const legacyMessageEndpoint = "/messages";
+const healthEndpoint = "/healthz";
 const oauthProtectedResourceEndpoint = "/.well-known/oauth-protected-resource";
 const container = createContainer();
 const httpConfig = container.config.get("http");
@@ -252,6 +253,15 @@ const httpServer = createServer((req, res) => {
 
       if (requestUrl.pathname === oauthProtectedResourceEndpoint && req.method === "GET") {
         sendJson(req, res, 200, protectedResourceMetadata(req));
+        return;
+      }
+
+      if (requestUrl.pathname === healthEndpoint && req.method === "GET") {
+        sendJson(req, res, 200, {
+          ok: true,
+          service: "mcp-ssh-tool",
+          transport: "streamable-http",
+        });
         return;
       }
 

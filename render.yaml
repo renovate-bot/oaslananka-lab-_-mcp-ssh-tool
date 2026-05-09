@@ -1,0 +1,38 @@
+services:
+  - type: web
+    name: sshautomator
+    runtime: node
+    plan: free
+    repo: https://github.com/oaslananka-lab/mcp-ssh-tool
+    branch: main
+    buildCommand: corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm install --frozen-lockfile && pnpm run build
+    startCommand: corepack enable && corepack prepare pnpm@11.0.8 --activate && pnpm run start:http
+    healthCheckPath: /healthz
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 24.14.1
+      - key: SSH_MCP_HTTP_HOST
+        value: 0.0.0.0
+      - key: SSH_MCP_HTTP_ALLOWED_ORIGINS
+        value: https://chatgpt.com,https://chat.openai.com,https://sshautomator.oaslananka.dev,https://sshautomator.onrender.com
+      - key: SSH_MCP_TOOL_PROFILE
+        value: chatgpt
+      - key: SSH_MCP_HOST_KEY_POLICY
+        value: strict
+      - key: SSH_MCP_POLICY_MODE
+        value: enforce
+      - key: SSH_MCP_ALLOW_ROOT_LOGIN
+        value: "false"
+      - key: SSH_MCP_ALLOW_RAW_SUDO
+        value: "false"
+      - key: SSH_MCP_ALLOW_DESTRUCTIVE_COMMANDS
+        value: "false"
+      - key: SSH_MCP_ALLOW_DESTRUCTIVE_FS
+        value: "false"
+      - key: SSH_MCP_HTTP_AUTH_MODE
+        value: bearer
+      - key: SSH_MCP_HTTP_BEARER_TOKEN
+        sync: false
+      - key: SSH_MCP_ALLOWED_HOSTS
+        sync: false
