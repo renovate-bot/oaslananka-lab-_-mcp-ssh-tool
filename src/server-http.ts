@@ -16,6 +16,8 @@ import {
   corsHeaders,
   isLoopbackHost,
   isOriginAllowed,
+  oauthProtectedResourceMetadataUrl,
+  oauthWwwAuthenticateHeader,
   validateHttpStartupConfig,
 } from "./http-security.js";
 
@@ -55,10 +57,12 @@ function sendJson(
   res: ServerResponse,
   statusCode: number,
   payload: Record<string, unknown>,
+  extraHeaders: Record<string, string> = {},
 ) {
   res.writeHead(statusCode, {
     "Content-Type": "application/json",
     ...corsHeaders(req.headers.origin, httpConfig.allowedOrigins),
+    ...extraHeaders,
   });
   res.end(JSON.stringify(payload, null, 2));
 }
@@ -169,6 +173,14 @@ function protectedResourceMetadata(req: IncomingMessage): Record<string, unknown
   };
 }
 
+function oauthChallengeHeader(req: IncomingMessage): string {
+  return oauthWwwAuthenticateHeader(
+    oauthProtectedResourceMetadataUrl(buildPublicMcpUrl(req)),
+    authConfig.oauthRequiredScopes,
+    req.headers.authorization !== undefined,
+  );
+}
+
 async function rejectIfUnauthorized(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const origin = req.headers.origin;
   if (!isOriginAllowed(origin, httpConfig.allowedOrigins)) {
@@ -190,7 +202,13 @@ async function rejectIfUnauthorized(req: IncomingMessage, res: ServerResponse): 
 
     const valid = await isOAuthAuthorizationValid(req.headers.authorization, verificationConfig);
     if (!valid) {
-      sendJson(req, res, 401, { error: "Missing or invalid OAuth bearer token" });
+      sendJson(
+        req,
+        res,
+        401,
+        { error: "Missing or invalid OAuth bearer token" },
+        { "WWW-Authenticate": oauthChallengeHeader(req) },
+      );
       return true;
     }
     return false;

@@ -110,7 +110,33 @@ export function corsHeaders(
     "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Headers": "authorization, content-type, mcp-session-id",
     "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-    "Access-Control-Expose-Headers": "mcp-session-id",
+    "Access-Control-Expose-Headers": "mcp-session-id, WWW-Authenticate",
     Vary: "Origin",
   };
+}
+
+export function oauthProtectedResourceMetadataUrl(publicMcpUrl: string): string {
+  const url = new URL(publicMcpUrl);
+  url.username = "";
+  url.password = "";
+  url.pathname = "/.well-known/oauth-protected-resource";
+  url.search = "";
+  url.hash = "";
+  return url.toString();
+}
+
+export function oauthWwwAuthenticateHeader(
+  resourceMetadataUrl: string,
+  scopes: readonly string[],
+  includeErrorDetails = false,
+): string {
+  const parts = [`resource_metadata="${resourceMetadataUrl}"`];
+  if (scopes.length > 0) {
+    parts.push(`scope="${scopes.join(" ")}"`);
+  }
+  if (includeErrorDetails) {
+    parts.push('error="invalid_token"');
+    parts.push('error_description="A valid OAuth access token is required"');
+  }
+  return `Bearer ${parts.join(", ")}`;
 }

@@ -3,6 +3,8 @@ import {
   corsHeaders,
   isLoopbackHost,
   isOriginAllowed,
+  oauthProtectedResourceMetadataUrl,
+  oauthWwwAuthenticateHeader,
   validateHttpStartupConfig,
 } from "../../src/http-security.js";
 
@@ -197,9 +199,41 @@ describe("HTTP transport security guards", () => {
     expect(corsHeaders("https://chatgpt.com", origins)).toEqual(
       expect.objectContaining({
         "Access-Control-Allow-Origin": "https://chatgpt.com",
+        "Access-Control-Expose-Headers": "mcp-session-id, WWW-Authenticate",
         Vary: "Origin",
       }),
     );
     expect(corsHeaders("https://evil.example", origins)).toEqual({});
+  });
+
+  test("builds OAuth discovery challenge headers for ChatGPT clients", () => {
+    const metadataUrl = oauthProtectedResourceMetadataUrl(
+      "https://sshautomator.oaslananka.dev/mcp",
+    );
+    expect(metadataUrl).toBe(
+      "https://sshautomator.oaslananka.dev/.well-known/oauth-protected-resource",
+    );
+
+    expect(oauthWwwAuthenticateHeader(metadataUrl, ["mcp-ssh-tool.read"])).toBe(
+      'Bearer resource_metadata="https://sshautomator.oaslananka.dev/.well-known/oauth-protected-resource", scope="mcp-ssh-tool.read"',
+    );
+
+    expect(oauthWwwAuthenticateHeader(metadataUrl, ["mcp-ssh-tool.read"], true)).toBe(
+      'Bearer resource_metadata="https://sshautomator.oaslananka.dev/.well-known/oauth-protected-resource", scope="mcp-ssh-tool.read", error="invalid_token", error_description="A valid OAuth access token is required"',
+    );
+
+    expect(
+      oauthProtectedResourceMetadataUrl(
+        "https://user:pass@sshautomator.oaslananka.dev/mcp?debug=true#token",
+      ),
+    ).toBe("https://sshautomator.oaslananka.dev/.well-known/oauth-protected-resource");
+
+    expect(oauthWwwAuthenticateHeader(metadataUrl, [])).toBe(
+      'Bearer resource_metadata="https://sshautomator.oaslananka.dev/.well-known/oauth-protected-resource"',
+    );
+
+    expect(oauthWwwAuthenticateHeader(metadataUrl, [], true)).toBe(
+      'Bearer resource_metadata="https://sshautomator.oaslananka.dev/.well-known/oauth-protected-resource", error="invalid_token", error_description="A valid OAuth access token is required"',
+    );
   });
 });
