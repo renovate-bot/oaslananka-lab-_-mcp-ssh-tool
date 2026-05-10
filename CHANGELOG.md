@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.2.7](https://github.com/oaslananka-lab/mcp-ssh-tool/compare/mcp-ssh-tool-v2.2.6...mcp-ssh-tool-v2.2.7) (2026-05-10)
+
+
+### Bug Fixes
+
+* **http:** advertise OAuth resource metadata challenge ([#25](https://github.com/oaslananka-lab/mcp-ssh-tool/issues/25)) ([59e1316](https://github.com/oaslananka-lab/mcp-ssh-tool/commit/59e1316a7ddde2142ff630710e86daf4939efe41))
+* **render:** configure OAuth blueprint ([fb970dc](https://github.com/oaslananka-lab/mcp-ssh-tool/commit/fb970dc0998d3cbac44d94a6d0a4a4e87ce3e5eb))
+
 ## [2.2.6](https://github.com/oaslananka-lab/mcp-ssh-tool/compare/mcp-ssh-tool-v2.2.5...mcp-ssh-tool-v2.2.6) (2026-05-09)
 
 
