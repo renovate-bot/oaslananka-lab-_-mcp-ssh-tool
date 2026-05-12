@@ -1,0 +1,259 @@
+name: Publish Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit SHA to publish
+        required: true
+
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: publish-production-${{ inputs.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify-package:
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    outputs:
+      publish_ref: ${{ steps.ref.outputs.value }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    steps:
+      - name: Resolve publish ref
+        id: ref
+        env:
+          INPUT_REF: ${{ inputs.ref }}
+        run: |
+          set -euo pipefail
+          if [[ ! "${INPUT_REF}" =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "INVALID_PUBLISH_REF" >&2
+            echo "Publish ref must be a 40-character commit SHA." >&2
+            exit 1
+          fi
+          echo "value=${INPUT_REF}" >> "${GITHUB_OUTPUT}"
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ steps.ref.outputs.value }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify publish ref is on release channel
+        env:
+          PUBLISH_REF: ${{ steps.ref.outputs.value }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --prune origin main
+          if ! git merge-base --is-ancestor "${PUBLISH_REF}" origin/main; then
+            echo "PUBLISH_REF_NOT_ON_RELEASE_CHANNEL" >&2
+            echo "Ref must be reachable from origin/main." >&2
+            exit 1
+          fi
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install and verify package
+        run: |
+          set -euo pipefail
+          corepack enable && corepack pnpm install --frozen-lockfile
+          corepack pnpm exec node -e "console.log('no native rebuild required')"
+          corepack pnpm run build --if-present
+          corepack pnpm run prepublishOnly --if-present
+          mkdir -p publish-artifact
+          corepack pnpm pack --pack-destination publish-artifact
+          node --input-type=commonjs -e "const p=require('./package.json'); if (!p.name || !p.version) throw new Error('package.json name/version is required'); console.log(p.name + '@' + p.version);"
+      - name: Upload package artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: npm-package
+          path: publish-artifact/*.tgz
+          if-no-files-found: error
+
+  npm-publish:
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    needs: verify-package
+    environment: production
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: npm-package
+          path: publish-artifact
+      - name: Setup Node.js for npm publish
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Use npm for trusted publishing
+        run: npm --version
+      - name: Publish to npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          FALLBACK_NODE_AUTH_TOKEN: ${{ secrets.NODE_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          write_report() {
+            REPORT_CHANNEL="npm" REPORT_STATE="$1" REPORT_RESULT="$2" REPORT_BLOCKER="$3" REPORT_PACKAGE="${package_name:-}" REPORT_VERSION="${package_version:-}" node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-npm.json", JSON.stringify({channel:process.env.REPORT_CHANNEL,state:process.env.REPORT_STATE,result:process.env.REPORT_RESULT,blocker:process.env.REPORT_BLOCKER,package:process.env.REPORT_PACKAGE,version:process.env.REPORT_VERSION,run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:[]}, null, 2)+"\n")'
+          }
+          token="${NPM_TOKEN:-${FALLBACK_NODE_AUTH_TOKEN:-}}"
+          if [[ -n "${token}" ]]; then
+            printf '//registry.npmjs.org/:_authToken=%s\n' "${token}" > "${HOME}/.npmrc"
+            export NODE_AUTH_TOKEN="${token}"
+          else
+            unset NODE_AUTH_TOKEN
+            if [[ -n "${NPM_CONFIG_USERCONFIG:-}" && -f "${NPM_CONFIG_USERCONFIG}" ]]; then
+              sed -i '/_authToken/d' "${NPM_CONFIG_USERCONFIG}"
+            fi
+            if [[ -f "${HOME}/.npmrc" ]]; then
+              sed -i '/_authToken/d' "${HOME}/.npmrc"
+            fi
+          fi
+          package_file="$(find publish-artifact -maxdepth 1 -type f -name '*.tgz' -print -quit)"
+          if [[ -z "${package_file}" ]]; then
+            echo "NPM_PACKAGE_ARTIFACT_MISSING" >&2
+            exit 1
+          fi
+          package_file="$(realpath "${package_file}")"
+          package_json="$(mktemp --suffix=.json)"
+          tar -xOf "${package_file}" package/package.json > "${package_json}"
+          package_name="$(node -e "const p=require(process.argv[1]); console.log(p.name || '')" "${package_json}")"
+          package_version="$(node -e "const p=require(process.argv[1]); console.log(p.version || '')" "${package_json}")"
+          if [[ -z "${package_name}" || -z "${package_version}" ]]; then
+            echo "NPM_PACKAGE_METADATA_INVALID" >&2
+            write_report "failed" "workflow_failure" "NPM_PACKAGE_METADATA_INVALID"
+            exit 1
+          fi
+          if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
+            echo "NPM_PACKAGE_VERSION_ALREADY_PUBLISHED"
+            write_report "already_published" "idempotent_noop" ""
+            exit 0
+          fi
+          publish_log="$(mktemp)"
+          set +e
+          npm publish "${package_file}" --provenance --access public >"${publish_log}" 2>&1
+          status="$?"
+          set -e
+          if [[ "${status}" -ne 0 ]]; then
+            if grep -Eiq "(already exists|cannot publish over|previously published|forbidden.*pre-existing version|cannot modify pre-existing version)" "${publish_log}"; then
+              echo "NPM_PACKAGE_VERSION_ALREADY_PUBLISHED"
+              write_report "already_published" "idempotent_noop" ""
+              cat "${publish_log}"
+              exit 0
+            fi
+            if grep -Eiq "(E401|E403|ENEEDAUTH|HTTP[[:space:]/_-]*401|HTTP[[:space:]/_-]*403|(^|[^[:alnum:]])401([^[:alnum:]]|$)|(^|[^[:alnum:]])403([^[:alnum:]]|$)|(^|[^[:alnum:]])forbidden([^[:alnum:]]|$)|authorization|permission[[:space:]]+denied|not[[:space:]]+authorized)" "${publish_log}"; then
+              if [[ -z "${token}" ]]; then
+                echo "NPM_TRUSTED_PUBLISHING_NOT_CONFIGURED" >&2
+                echo "NPM_TOKEN_SECRET_MISSING" >&2
+                write_report "failed" "external_blocker" "NPM_TRUSTED_PUBLISHING_NOT_CONFIGURED"
+              else
+                echo "NPM_REGISTRY_PERMISSION_DENIED" >&2
+                write_report "failed" "external_blocker" "NPM_REGISTRY_PERMISSION_DENIED"
+              fi
+            elif grep -Eiq "(E404|not found|name.*unavailable)" "${publish_log}"; then
+              echo "NPM_PACKAGE_NAME_UNAVAILABLE" >&2
+              write_report "failed" "external_blocker" "NPM_PACKAGE_NAME_UNAVAILABLE"
+            else
+              echo "NPM_PUBLISH_FAILED" >&2
+              write_report "failed" "workflow_failure" "NPM_PUBLISH_FAILED"
+            fi
+            cat "${publish_log}" >&2
+            exit "${status}"
+          fi
+          cat "${publish_log}"
+          write_report "published" "fresh_publish_success" ""
+      - name: Upload npm publish report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: publish-report-${{ github.event.repository.name }}-npm
+          path: out/publish-report-npm.json
+          if-no-files-found: ignore
+
+  mcp-registry-publish:
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    needs:
+      - verify-package
+      - npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: ${{ needs.verify-package.outputs.publish_ref }}
+          persist-credentials: false
+      - name: Verify server metadata
+        run: |
+          mkdir -p out
+          if [[ ! -f server.json ]]; then
+            echo "MCP_REGISTRY_CONFIG_MISSING"
+            node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-mcp-registry.json", JSON.stringify({channel:"mcp_registry",state:"failed",result:"external_blocker",blocker:"MCP_REGISTRY_CONFIG_MISSING",package:"",version:"",run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:["server.json missing"]}, null, 2)+"\n")'
+            exit 1
+          fi
+      - name: Install mcp-publisher
+        run: |
+          set -euo pipefail
+          arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
+          os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz" | tar xz mcp-publisher
+          sudo install -m 0755 mcp-publisher /usr/local/bin/mcp-publisher
+      - name: Login via GitHub OIDC
+        run: mcp-publisher login github-oidc
+      - name: Validate server.json
+        run: |
+          set +e
+          output="$(mcp-publisher publish --dry-run 2>&1)"
+          status="$?"
+          set -e
+          printf '%s\n' "$output"
+          if [[ "${status}" -eq 0 ]]; then
+            exit 0
+          fi
+          node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-mcp-registry.json", JSON.stringify({channel:"mcp_registry",state:"failed",result:"external_blocker",blocker:"MCP_REGISTRY_EXTERNAL_CONFIGURATION_REQUIRED",package:"",version:"",run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:["mcp-publisher dry-run failed"]}, null, 2)+"\n")'
+          exit "${status}"
+      - name: Publish to MCP Registry
+        run: |
+          set +e
+          output="$(mcp-publisher publish 2>&1)"
+          status="$?"
+          set -e
+          printf '%s\n' "$output"
+          if [[ "${status}" -eq 0 ]]; then
+            node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-mcp-registry.json", JSON.stringify({channel:"mcp_registry",state:"published",result:"fresh_publish_success",blocker:"",package:"",version:"",run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:["mcp-publisher publish exited 0"]}, null, 2)+"\n")'
+            exit 0
+          fi
+          node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-mcp-registry.json", JSON.stringify({channel:"mcp_registry",state:"failed",result:"external_blocker",blocker:"MCP_REGISTRY_EXTERNAL_CONFIGURATION_REQUIRED",package:"",version:"",run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:["mcp-publisher publish failed"]}, null, 2)+"\n")'
+          exit "${status}"
+      - name: Upload MCP Registry publish report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: publish-report-${{ github.event.repository.name }}-mcp-registry
+          path: out/publish-report-mcp-registry.json
+          if-no-files-found: ignore
+
