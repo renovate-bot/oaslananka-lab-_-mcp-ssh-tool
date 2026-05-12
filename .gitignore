@@ -1,0 +1,46 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+docs/api/
+coverage/
+test-results/
+artifacts/
+.cache/
+data/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# IDE files
+.vscode/
+.idea/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# MCP Registry auth tokens
+.mcpregistry_*
+
+# SSH keys (for security)
+*.pem
+*.key
+id_*
+
+
+# Package files
+*.tgz
+
+# Azure Pipelines local
+.azure/local/
+
+# Temp
+*.tmp
+*.temp

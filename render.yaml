@@ -1,0 +1,94 @@
+services:
+  - type: web
+    name: sshautomator
+    runtime: node
+    plan: starter
+    repo: https://github.com/oaslananka-lab/mcp-ssh-tool
+    branch: main
+    buildCommand: corepack enable && corepack prepare pnpm@11.0.9 --activate && pnpm install --frozen-lockfile && pnpm run build
+    startCommand: corepack enable && corepack prepare pnpm@11.0.9 --activate && mkdir -p data && pnpm run start:http
+    healthCheckPath: /healthz
+    autoDeploy: true
+    disk:
+      name: sshautomator-data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 24.15.0
+      - key: SSH_MCP_HTTP_HOST
+        value: 0.0.0.0
+      - key: SSH_MCP_HTTP_ALLOWED_ORIGINS
+        value: https://chatgpt.com,https://chat.openai.com,https://sshautomator.oaslananka.dev,https://sshautomator.onrender.com
+      - key: SSH_MCP_HTTP_PUBLIC_URL
+        value: https://sshautomator.oaslananka.dev/mcp
+      - key: SSH_MCP_HTTP_TRUST_PROXY
+        value: "true"
+      - key: SSH_MCP_HTTP_MAX_SESSIONS
+        value: "20"
+      - key: SSH_MCP_HTTP_SESSION_IDLE_TTL_MS
+        value: "900000"
+      - key: SSH_MCP_TOOL_PROFILE
+        value: chatgpt
+      - key: SSH_MCP_HOST_KEY_POLICY
+        value: strict
+      - key: SSH_MCP_POLICY_MODE
+        value: enforce
+      - key: SSH_MCP_ALLOW_ROOT_LOGIN
+        value: "false"
+      - key: SSH_MCP_ALLOW_RAW_SUDO
+        value: "false"
+      - key: SSH_MCP_ALLOW_DESTRUCTIVE_COMMANDS
+        value: "false"
+      - key: SSH_MCP_ALLOW_DESTRUCTIVE_FS
+        value: "false"
+      - key: SSH_MCP_HTTP_AUTH_MODE
+        value: oauth
+      - key: SSH_MCP_OAUTH_ISSUER
+        value: https://sshautomator.oaslananka.dev
+      - key: SSH_MCP_OAUTH_JWKS_URL
+        value: https://sshautomator.oaslananka.dev/oauth/jwks.json
+      - key: SSH_MCP_OAUTH_AUDIENCE
+        value: https://sshautomator.oaslananka.dev/mcp
+      - key: SSH_MCP_OAUTH_REQUIRED_SCOPES
+        value: hosts:read,agents:read,status:read,logs:read
+      - key: SSHAUTOMATOR_REMOTE_AGENT_CONTROL_PLANE
+        value: "true"
+      - key: PUBLIC_BASE_URL
+        value: https://sshautomator.oaslananka.dev
+      - key: MCP_RESOURCE_URL
+        value: https://sshautomator.oaslananka.dev/mcp
+      - key: DATABASE_URL
+        value: file:/opt/render/project/src/data/sshautomator.db
+      - key: GITHUB_CALLBACK_URL
+        value: https://sshautomator.oaslananka.dev/oauth/callback/github
+      - key: AUTH_ALLOW_ALL_USERS
+        value: "false"
+      - key: AUTH_ALLOWED_GITHUB_LOGINS
+        value: oaslananka
+      - key: AUTH_ALLOWED_GITHUB_IDS
+        value: "169144131"
+      - key: ACCESS_TOKEN_TTL_SECONDS
+        value: "900"
+      - key: AUTH_CODE_TTL_SECONDS
+        value: "300"
+      - key: ENROLLMENT_TOKEN_TTL_SECONDS
+        value: "600"
+      - key: CONTROL_PLANE_SIGNING_KEY_PATH
+        value: /opt/render/project/src/data/control-plane-ed25519.json
+      - key: JWT_SIGNING_KEY_PATH
+        value: /opt/render/project/src/data/jwt-ed25519.json
+      - key: AGENT_WS_PATH
+        value: /api/agents/connect
+      - key: MAX_ACTION_TIMEOUT_SECONDS
+        value: "120"
+      - key: MAX_OUTPUT_BYTES
+        value: "200000"
+      - key: OAUTH_DCR_MAX_CLIENTS
+        value: "100"
+      - key: GITHUB_CLIENT_ID
+        sync: false
+      - key: GITHUB_CLIENT_SECRET
+        sync: false
+      - key: SSH_MCP_ALLOWED_HOSTS
+        sync: false
