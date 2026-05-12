@@ -1,0 +1,195 @@
+{
+  "name": "mcp-ssh-tool",
+  "version": "2.3.2",
+  "mcpName": "io.github.oaslananka/mcp-ssh-tool",
+  "description": "Model Context Protocol (MCP) SSH client server for remote automation",
+  "type": "module",
+  "packageManager": "pnpm@11.0.9",
+  "main": "dist/index.js",
+  "exports": "./dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist",
+    "docs",
+    "!docs/api",
+    "examples",
+    "AGENTS.md",
+    "ARCHITECTURE.md",
+    "SECURITY_DECISIONS.md",
+    "MIGRATION.md",
+    "mcp.json",
+    "server.json",
+    "README.md",
+    "LICENSE",
+    "REGISTRY_SUBMISSION.md",
+    "registry"
+  ],
+  "bin": {
+    "mcp-ssh-tool": "dist/index.js",
+    "mcp-ssh-agent": "dist/agent-bin.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json -w",
+    "dev:control-plane": "pnpm run build && node scripts/dev-control-plane.mjs",
+    "dev:agent": "pnpm run build && node scripts/dev-agent.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=unit --runInBand",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --testPathPatterns=unit --runInBand",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=integration --runInBand",
+    "test:e2e": "node --experimental-vm-modules node_modules/jest/bin/jest.js --testPathPatterns=e2e --runInBand",
+    "lint": "eslint \"src/**/*.ts\" \"test/**/*.ts\"",
+    "lint:fix": "eslint \"src/**/*.ts\" \"test/**/*.ts\" --fix",
+    "lint:staged": "node scripts/run-staged-checks.mjs --lint-only",
+    "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.{mjs,cjs}\" \".github/workflows/*.{yml,yaml}\" \".azure/pipelines/*.{yml,yaml}\" \".gitlab-ci.yml\"",
+    "format:check": "prettier --check \"src/**/*.ts\" \"test/**/*.ts\" \"scripts/**/*.{mjs,cjs}\" \".github/workflows/*.{yml,yaml}\" \".azure/pipelines/*.{yml,yaml}\" \".gitlab-ci.yml\"",
+    "format:staged": "node scripts/run-staged-checks.mjs",
+    "prepare": "node scripts/setup-git-hooks.mjs",
+    "prepack": "pnpm run build && pnpm run sync-version -- --check && pnpm run validate:mcp-metadata && pnpm run validate:chatgpt-app && pnpm run validate:claude-connector",
+    "prepublishOnly": "pnpm run check",
+    "e2e:docker": "docker compose up -d ssh-server && pnpm run test:e2e",
+    "integration:docker": "docker compose up -d ssh-server && pnpm run test:integration",
+    "docs": "pnpm exec typedoc --options typedoc.json",
+    "start:http": "node dist/render-http.js",
+    "setup:chatgpt": "node scripts/setup-chatgpt.mjs",
+    "sync-version": "node scripts/sync-version.mjs",
+    "validate:mcp-metadata": "node scripts/validate-mcp-metadata.mjs",
+    "validate:chatgpt-app": "node scripts/validate-chatgpt-app.mjs",
+    "validate:claude-connector": "node scripts/validate-claude-connector.mjs",
+    "review:threads": "node scripts/check-review-threads.mjs",
+    "release:state": "node scripts/release-state.mjs",
+    "audit": "pnpm audit --audit-level moderate",
+    "licenses:check": "node scripts/check-licenses.mjs",
+    "pack:check": "node scripts/check-package-contents.mjs",
+    "check:quality": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm run audit && pnpm run licenses:check",
+    "check:package": "pnpm run build && pnpm run sync-version -- --check && pnpm run validate:mcp-metadata && pnpm run validate:chatgpt-app && pnpm run validate:claude-connector && pnpm run pack:check",
+    "check:push": "pnpm run format:check && pnpm run lint && pnpm run typecheck && pnpm test",
+    "check": "pnpm run check:quality && pnpm run test:coverage && pnpm run check:package",
+    "hook:pre-commit": "pnpm run format:staged",
+    "hook:pre-push": "pnpm run check:push",
+    "release:dry-run": "node scripts/validate-release-please.mjs && node scripts/release-state.mjs --offline --json && pnpm run check:package",
+    "sbom": "node scripts/generate-sbom.mjs"
+  },
+  "keywords": [
+    "mcp",
+    "ssh",
+    "copilot",
+    "automation",
+    "remote",
+    "model-context-protocol",
+    "github-copilot",
+    "ssh-client",
+    "devops",
+    "infrastructure"
+  ],
+  "author": "Osman Aslan <oaslananka>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/oaslananka-lab/mcp-ssh-tool.git"
+  },
+  "homepage": "https://github.com/oaslananka-lab/mcp-ssh-tool#readme",
+  "bugs": {
+    "url": "https://github.com/oaslananka-lab/mcp-ssh-tool/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "engines": {
+    "node": "^22.22.2 || ^24.15.0",
+    "pnpm": "^11.0.9"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.217.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-node": "^0.217.0",
+    "@opentelemetry/semantic-conventions": "^1.40.0",
+    "jose": "6.2.3",
+    "node-ssh": "^13.2.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^19.8.1",
+    "@commitlint/config-conventional": "^19.8.1",
+    "@jest/globals": "^30.3.0",
+    "@types/node": "^24.12.2",
+    "@types/ssh2": "^1.15.5",
+    "@typescript-eslint/eslint-plugin": "^8.59.0",
+    "@typescript-eslint/parser": "^8.59.0",
+    "eslint": "^9.39.4",
+    "jest": "^30.3.0",
+    "prettier": "^3.8.3",
+    "release-please": "^17.6.0",
+    "ts-jest": "^29.4.9",
+    "typescript": "^5.9.3"
+  },
+  "jest": {
+    "preset": "ts-jest/presets/default-esm",
+    "extensionsToTreatAsEsm": [
+      ".ts"
+    ],
+    "testEnvironment": "node",
+    "testMatch": [
+      "<rootDir>/test/**/*.test.ts"
+    ],
+    "moduleNameMapper": {
+      "^(\\.{1,2}/.*)\\.js$": "$1"
+    },
+    "transform": {
+      "^.+\\.tsx?$": [
+        "ts-jest",
+        {
+          "useESM": true,
+          "tsconfig": "tsconfig.test.json",
+          "diagnostics": {
+            "ignoreCodes": [
+              151002
+            ]
+          }
+        }
+      ]
+    },
+    "collectCoverageFrom": [
+      "src/**/*.ts",
+      "!src/**/*.d.ts",
+      "!src/index.ts",
+      "!src/server-http.ts",
+      "!src/render-http.ts",
+      "!src/remote/agent-executor.ts",
+      "!src/remote/agent-cli.ts",
+      "!src/remote/config.ts",
+      "!src/remote/control-plane.ts",
+      "!src/remote/mcp-tools.ts",
+      "!src/remote/store.ts",
+      "!src/remote/util.ts",
+      "!src/remote/websocket.ts"
+    ],
+    "coverageDirectory": "coverage",
+    "coverageReporters": [
+      "text",
+      "lcov",
+      "html",
+      "cobertura"
+    ],
+    "coverageThreshold": {
+      "global": {
+        "branches": 85,
+        "functions": 85,
+        "lines": 90,
+        "statements": 90
+      }
+    },
+    "reporters": [
+      "default",
+      [
+        "<rootDir>/scripts/junit-reporter.cjs",
+        {
+          "outputDirectory": "test-results",
+          "outputName": "junit.xml"
+        }
+      ]
+    ]
+  }
+}

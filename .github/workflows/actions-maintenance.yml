@@ -1,0 +1,163 @@
+name: Actions Maintenance
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Maintenance operation"
+        required: true
+        default: "list-failed-runs"
+        type: choice
+        options:
+          - list-failed-runs
+          - classify-run
+          - cancel-superseded-pr-runs
+          - rerun-infra-only
+          - release-state
+      pr_number:
+        description: "Pull request number for PR-scoped maintenance"
+        required: false
+        type: string
+      run_id:
+        description: "GitHub Actions run id for run-scoped maintenance"
+        required: false
+        type: string
+      dry_run:
+        description: "Preview mutating maintenance actions"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  actions: write
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: actions-maintenance-${{ inputs.mode }}-${{ inputs.pr_number || inputs.run_id || github.run_id }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  maintain:
+    name: Manual Actions maintenance
+    if: ${{ github.repository == 'oaslananka-lab/mcp-ssh-tool' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: 24.15.0
+
+      - name: Run selected maintenance operation
+        env:
+          DRY_RUN: ${{ inputs.dry_run }}
+          GH_TOKEN: ${{ github.token }}
+          MODE: ${{ inputs.mode }}
+          PR_NUMBER: ${{ inputs.pr_number }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ inputs.run_id }}
+        run: |
+          set -euo pipefail
+          mkdir -p .actions-maintenance
+
+          case "$MODE" in
+            list-failed-runs)
+              gh run list --repo "$REPO" --status failure --limit 20
+              ;;
+
+            classify-run)
+              if [[ -z "$RUN_ID" ]]; then
+                echo "run_id is required for classify-run."
+                exit 1
+              fi
+              if ! gh run view "$RUN_ID" --repo "$REPO" --log-failed > .actions-maintenance/failed.log; then
+                : > .actions-maintenance/failed.log
+              fi
+              node scripts/classify-gh-failure.mjs --log-file .actions-maintenance/failed.log --json
+              ;;
+
+            cancel-superseded-pr-runs)
+              if [[ -z "$PR_NUMBER" ]]; then
+                echo "pr_number is required for cancel-superseded-pr-runs."
+                exit 1
+              fi
+              head_ref="$(gh pr view "$PR_NUMBER" --repo "$REPO" --json headRefName --jq '.headRefName')"
+              gh run list \
+                --repo "$REPO" \
+                --branch "$head_ref" \
+                --status in_progress \
+                --limit 50 \
+                --json databaseId,name,workflowName,createdAt,url > .actions-maintenance/in-progress.json
+              gh run list \
+                --repo "$REPO" \
+                --branch "$head_ref" \
+                --status queued \
+                --limit 50 \
+                --json databaseId,name,workflowName,createdAt,url > .actions-maintenance/queued.json
+              # shellcheck disable=SC2016
+              node -e 'const fs = require("node:fs"); const current = Number(process.env.GITHUB_RUN_ID); const runs = [...JSON.parse(fs.readFileSync(".actions-maintenance/in-progress.json", "utf8")), ...JSON.parse(fs.readFileSync(".actions-maintenance/queued.json", "utf8"))].filter((run) => Number(run.databaseId) !== current); for (const run of runs) console.log(`${run.databaseId}\t${run.workflowName || run.name}\t${run.url}`);' > .actions-maintenance/cancel-plan.txt
+              cat .actions-maintenance/cancel-plan.txt
+              if [[ "$DRY_RUN" == "false" ]]; then
+                cut -f1 .actions-maintenance/cancel-plan.txt | while read -r run_id; do
+                  [[ -z "$run_id" ]] && continue
+                  gh run cancel "$run_id" --repo "$REPO"
+                done
+              else
+                echo "Dry run: no workflow runs were canceled."
+              fi
+              ;;
+
+            rerun-infra-only)
+              if [[ -z "$RUN_ID" ]]; then
+                echo "run_id is required for rerun-infra-only."
+                exit 1
+              fi
+              if ! gh run view "$RUN_ID" --repo "$REPO" --log-failed > .actions-maintenance/failed.log; then
+                : > .actions-maintenance/failed.log
+              fi
+              node scripts/classify-gh-failure.mjs \
+                --log-file .actions-maintenance/failed.log \
+                --json > .actions-maintenance/classification.json
+              cat .actions-maintenance/classification.json
+              failure_class="$(node -e "const c=require('./.actions-maintenance/classification.json'); console.log(c.class)")"
+              if [[ "$failure_class" != "flaky/infra failure" && "$failure_class" != "dependency-cache/restore issue" ]]; then
+                echo "Refusing rerun because failure class is not infra-only: ${failure_class}"
+                exit 1
+              fi
+              if [[ "$DRY_RUN" == "false" ]]; then
+                gh run rerun "$RUN_ID" --repo "$REPO"
+              else
+                echo "Dry run: would rerun ${RUN_ID}."
+              fi
+              ;;
+
+            release-state)
+              node scripts/release-state.mjs --repo "$REPO"
+              ;;
+
+            *)
+              echo "Unsupported maintenance mode: ${MODE}"
+              exit 1
+              ;;
+          esac
+
+      - name: Write safety summary
+        run: |
+          {
+            echo "## Actions Maintenance Safety"
+            echo
+            echo "- Mode: \`${{ inputs.mode }}\`"
+            echo "- Dry run: \`${{ inputs.dry_run }}\`"
+            echo "- No tags, releases, packages, MCP Registry entries, GHCR images, ChatGPT apps, or mirror refs are published by this workflow."
+          } >> "$GITHUB_STEP_SUMMARY"

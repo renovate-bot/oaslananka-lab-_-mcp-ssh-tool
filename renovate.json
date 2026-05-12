@@ -1,0 +1,29 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:best-practices",
+    "schedule:weekly",
+    ":separateMajorReleases"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "prHourlyLimit": 2,
+  "prConcurrentLimit": 5,
+  "packageRules": [
+    {
+      "matchPackageNames": [
+        "@modelcontextprotocol/sdk"
+      ],
+      "automerge": false
+    },
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "addLabels": [
+        "ci"
+      ]
+    }
+  ]
+}
