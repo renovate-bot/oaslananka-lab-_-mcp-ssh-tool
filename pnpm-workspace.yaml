@@ -1,0 +1,20 @@
+packages:
+  - .
+
+engineStrict: true
+strictDepBuilds: true
+
+allowBuilds:
+  cpu-features: false
+  libxmljs2: false
+  protobufjs: false
+  ssh2: false
+  unrs-resolver: false
+
+overrides:
+  "@hono/node-server": ^1.19.13
+  express-rate-limit: ^8.5.1
+  fast-uri: ^3.1.1
+  hono: ^4.12.18
+  ip-address: ^10.2.0
+  protobufjs: ^7.5.5
