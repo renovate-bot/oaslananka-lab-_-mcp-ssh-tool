@@ -1,3 +1,6 @@
+import { mkdtempSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, test } from "@jest/globals";
 import { createAgentPolicy } from "../../src/remote/policy.js";
 import { RemoteStore } from "../../src/remote/store.js";
@@ -93,5 +96,121 @@ describe("remote durable store", () => {
     });
     expect(store.countOAuthClients()).toBe(1);
     store.close();
+  });
+
+  test("persists users, clients, agents, and audit events across process restarts", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "sshautomator-store-"));
+    const databaseUrl = `file:${path.join(dir, "remote.db")}`;
+    const policy = createAgentPolicy("operations");
+    const store = new RemoteStore(databaseUrl);
+    store.upsertUser({
+      internalId: "usr_1",
+      id: "169144131",
+      login: "oaslananka",
+      now,
+    });
+    store.insertClient({
+      id: "row_cli_restart",
+      clientId: "cli_restart",
+      clientName: "Restart Client",
+      redirectUris: ["https://chatgpt.com/callback"],
+      grantTypes: ["authorization_code"],
+      responseTypes: ["code"],
+      tokenEndpointAuthMethod: "none",
+      createdAt: now,
+    });
+    store.insertAgent({
+      id: "agt_restart",
+      userId: "usr_1",
+      alias: "prod-vps",
+      status: "online",
+      publicKey: "public-key",
+      profile: policy.profile,
+      policy,
+      policyVersion: policy.version,
+      hostMetadata: {
+        hostname: "prod-vps",
+        os: "Linux",
+        arch: "x64",
+        platform: "linux",
+      },
+      lastSeenAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    store.insertAudit({
+      id: "aud_restart",
+      userId: "usr_1",
+      agentId: "agt_restart",
+      actionId: "act_restart",
+      eventType: "action_completed",
+      severity: "info",
+      metadata: { status: "ok" },
+      createdAt: now,
+    });
+    store.close();
+
+    const reopened = new RemoteStore(databaseUrl);
+    try {
+      expect(reopened.getUserByGitHubId("169144131")).toMatchObject({
+        id: "usr_1",
+        githubLogin: "oaslananka",
+      });
+      expect(reopened.getClient("cli_restart")).toMatchObject({
+        clientName: "Restart Client",
+        redirectUris: ["https://chatgpt.com/callback"],
+      });
+      expect(reopened.getAgentByAlias("usr_1", "prod-vps")).toMatchObject({
+        id: "agt_restart",
+        status: "online",
+        hostMetadata: expect.objectContaining({ hostname: "prod-vps" }),
+      });
+      expect(reopened.listAudit("usr_1", "agt_restart", 10)).toEqual([
+        expect.objectContaining({
+          id: "aud_restart",
+          eventType: "action_completed",
+          metadata: { status: "ok" },
+        }),
+      ]);
+    } finally {
+      reopened.close();
+    }
+  });
+
+  test("bounds audit reads and filters by agent without leaking other agents", () => {
+    const store = new RemoteStore(":memory:");
+    try {
+      for (let index = 0; index < 210; index += 1) {
+        store.insertAudit({
+          id: `aud_a_${index.toString().padStart(3, "0")}`,
+          userId: "usr_1",
+          agentId: "agt_a",
+          eventType: "action_completed",
+          severity: "info",
+          metadata: { index },
+          createdAt: `2026-01-01T00:${String(index % 60).padStart(2, "0")}:00.000Z`,
+        });
+      }
+      store.insertAudit({
+        id: "aud_b_secret",
+        userId: "usr_1",
+        agentId: "agt_b",
+        eventType: "action_completed",
+        severity: "info",
+        metadata: { agent: "b" },
+        createdAt: "2026-01-01T01:00:00.000Z",
+      });
+
+      const unfiltered = store.listAudit("usr_1", undefined, 10_000);
+      expect(unfiltered).toHaveLength(200);
+      expect(unfiltered[0]?.id).toBe("aud_b_secret");
+
+      const filtered = store.listAudit("usr_1", "agt_a", 10_000);
+      expect(filtered).toHaveLength(200);
+      expect(filtered.every((event) => event.agentId === "agt_a")).toBe(true);
+      expect(filtered.map((event) => event.id)).not.toContain("aud_b_secret");
+    } finally {
+      store.close();
+    }
   });
 });

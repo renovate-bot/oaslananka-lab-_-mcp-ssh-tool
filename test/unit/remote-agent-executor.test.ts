@@ -123,4 +123,49 @@ describe("remote agent executor", () => {
     expect((result.stdout ?? "").startsWith("x".repeat(16))).toBe(true);
     expect(result.stdout).toContain("truncated");
   });
+
+  test("rejects unsafe service, container, and log identifiers before spawning commands", async () => {
+    const keyPair = generateEd25519PemKeyPair();
+    const executor = new AgentExecutor(createAgentPolicy("full-admin"), keyPair.privateKeyPem);
+
+    await expect(
+      executor.execute(
+        action("restart_service", "service.manage", {
+          service: "sshd;id",
+          timeout_seconds: 10,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      status: "error",
+      error_code: "POLICY_DENIED",
+      message: expect.stringContaining("Service name contains unsupported characters"),
+    });
+
+    await expect(
+      executor.execute(
+        action("docker_logs", "docker.manage", {
+          container: "app$(id)",
+          lines: 10,
+          timeout_seconds: 10,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      status: "error",
+      error_code: "POLICY_DENIED",
+      message: expect.stringContaining("Container name contains unsupported characters"),
+    });
+
+    await expect(
+      executor.execute(
+        action("tail_logs", "logs.read", {
+          unit_or_file: "sshd;id",
+          timeout_seconds: 10,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      status: "error",
+      error_code: "POLICY_DENIED",
+      message: expect.stringContaining("unsupported characters"),
+    });
+  });
 });
