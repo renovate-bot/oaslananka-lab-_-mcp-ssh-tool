@@ -1,0 +1,52 @@
+workflow:
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+    - when: never
+
+stages:
+  - quality
+  - test
+  - package
+
+default:
+  image: node:24.14.1-bookworm@sha256:80fc934952c8f1b2b4d39907af7211f8a9fff1a4c2cf673fb49099292c251cec
+  cache:
+    key:
+      files:
+        - pnpm-lock.yaml
+    paths:
+      - .pnpm-store/
+  before_script:
+    - corepack enable
+    - corepack prepare pnpm@11.0.8 --activate
+    - pnpm config set store-dir .pnpm-store
+    - pnpm install --frozen-lockfile
+
+quality:
+  stage: quality
+  script:
+    - pnpm run check:quality
+
+unit:
+  stage: test
+  script:
+    - pnpm run test:coverage
+  artifacts:
+    when: always
+    paths:
+      - coverage/
+      - test-results/
+    expire_in: 14 days
+
+package:
+  stage: package
+  script:
+    - pnpm run check:package
+    - mkdir -p artifacts
+    - pnpm run sbom
+    - PACKAGE_FILE=$(pnpm pack --pack-destination artifacts --json | node -e "let d=''; process.stdin.on('data', c => d += c); process.stdin.on('end', () => { const p = JSON.parse(d); const r = Array.isArray(p) ? p[0]: p; console.log(r.filename || r.name || r.path); });")
+    - sha256sum "artifacts/$PACKAGE_FILE" > "artifacts/$PACKAGE_FILE.sha256"
+  artifacts:
+    paths:
+      - artifacts/
+    expire_in: 14 days

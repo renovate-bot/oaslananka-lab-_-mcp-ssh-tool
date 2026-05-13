@@ -1,0 +1,14 @@
+{
+  "$schema": "https://typedoc.org/schema.json",
+  "entryPoints": ["src/index.ts", "src/container.ts", "src/tools/types.ts"],
+  "entryPointStrategy": "expand",
+  "out": "docs/api",
+  "excludePrivate": true,
+  "excludeInternal": true,
+  "skipErrorChecking": false,
+  "readme": "README.md",
+  "plugin": [],
+  "name": "mcp-ssh-tool API",
+  "includeVersion": true,
+  "sourceLinkTemplate": "https://github.com/oaslananka-lab/mcp-ssh-tool/blob/{gitRevision}/{path}#L{line}"
+}
