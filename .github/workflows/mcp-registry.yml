@@ -18,6 +18,7 @@ permissions:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  MCP_PUBLISHER_VERSION: "1.7.9"
 
 concurrency:
   group: mcp-registry-publish-${{ github.ref }}
@@ -35,17 +36,57 @@ jobs:
           persist-credentials: false
       - name: Verify server metadata
         run: |
-          test -f server.json || { echo "MCP_REGISTRY_CONFIG_MISSING"; exit 1; }
+          mkdir -p out
+          if [[ ! -f server.json ]]; then
+            echo "MCP_REGISTRY_CONFIG_MISSING"
+            node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-mcp-registry.json", JSON.stringify({channel:"mcp_registry",state:"failed",result:"external_blocker",blocker:"MCP_REGISTRY_CONFIG_MISSING",package:"",version:"",run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:["server.json missing"]}, null, 2)+"\n")'
+            exit 1
+          fi
       - name: Install mcp-publisher
         run: |
           set -euo pipefail
           arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
           os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz" | tar xz mcp-publisher
-          sudo install -m 0755 mcp-publisher /usr/local/bin/mcp-publisher
+          asset="mcp-publisher_${os}_${arch}.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}"
+          tmp="$(mktemp -d)"
+          curl -fsSL "${base_url}/${asset}" -o "${tmp}/${asset}"
+          curl -fsSL "${base_url}/registry_${MCP_PUBLISHER_VERSION}_checksums.txt" -o "${tmp}/checksums.txt"
+          grep "  ${asset}$" "${tmp}/checksums.txt" > "${tmp}/checksums.filtered"
+          (cd "${tmp}" && sha256sum -c checksums.filtered)
+          tar -xzf "${tmp}/${asset}" -C "${tmp}" mcp-publisher
+          sudo install -m 0755 "${tmp}/mcp-publisher" /usr/local/bin/mcp-publisher
       - name: Login via GitHub OIDC
         run: mcp-publisher login github-oidc
       - name: Validate server.json
-        run: mcp-publisher publish --dry-run
+        run: |
+          set +e
+          output="$(mcp-publisher publish --dry-run 2>&1)"
+          status="$?"
+          set -e
+          printf '%s\n' "${output}"
+          if [[ "${status}" -eq 0 ]]; then
+            exit 0
+          fi
+          node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-mcp-registry.json", JSON.stringify({channel:"mcp_registry",state:"failed",result:"external_blocker",blocker:"MCP_REGISTRY_EXTERNAL_CONFIGURATION_REQUIRED",package:"",version:"",run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:["mcp-publisher dry-run failed"]}, null, 2)+"\n")'
+          exit "${status}"
       - name: Publish
-        run: mcp-publisher publish
+        run: |
+          set +e
+          output="$(mcp-publisher publish 2>&1)"
+          status="$?"
+          set -e
+          printf '%s\n' "${output}"
+          if [[ "${status}" -eq 0 ]]; then
+            node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-mcp-registry.json", JSON.stringify({channel:"mcp_registry",state:"published",result:"fresh_publish_success",blocker:"",package:"",version:"",run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:["mcp-publisher publish exited 0"]}, null, 2)+"\n")'
+            exit 0
+          fi
+          node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-mcp-registry.json", JSON.stringify({channel:"mcp_registry",state:"failed",result:"external_blocker",blocker:"MCP_REGISTRY_EXTERNAL_CONFIGURATION_REQUIRED",package:"",version:"",run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:["mcp-publisher publish failed"]}, null, 2)+"\n")'
+          exit "${status}"
+      - name: Upload MCP Registry publish report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: publish-report-${{ github.event.repository.name }}-mcp-registry
+          path: out/publish-report-mcp-registry.json
+          if-no-files-found: ignore

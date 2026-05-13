@@ -11,7 +11,10 @@ permissions:
   contents: read
 
 env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  NODE_VERSION: '24.15.0'
+  NPM_VERSION: '11.6.2'
+  MCP_PUBLISHER_VERSION: '1.7.9'
 
 defaults:
   run:
@@ -63,17 +66,18 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
-          package-manager-cache: false
+          cache: ''
       - name: Install and verify package
         run: |
           set -euo pipefail
-          corepack enable && corepack pnpm install --frozen-lockfile
-          corepack pnpm exec node -e "console.log('no native rebuild required')"
+          mkdir -p publish-artifact
+          corepack enable
+          corepack install
+          corepack pnpm install --frozen-lockfile
           corepack pnpm run build --if-present
           corepack pnpm run prepublishOnly --if-present
-          mkdir -p publish-artifact
           corepack pnpm pack --pack-destination publish-artifact
           node --input-type=commonjs -e "const p=require('./package.json'); if (!p.name || !p.version) throw new Error('package.json name/version is required'); console.log(p.name + '@' + p.version);"
       - name: Upload package artifact
@@ -101,11 +105,11 @@ jobs:
       - name: Setup Node.js for npm publish
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
         with:
-          node-version: "24"
+          node-version: ${{ env.NODE_VERSION }}
           registry-url: https://registry.npmjs.org
-          package-manager-cache: false
+          cache: ''
       - name: Use npm for trusted publishing
-        run: npm --version
+        run: npx --yes "npm@${NPM_VERSION}" --version
       - name: Publish to npm
         env:
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -114,7 +118,29 @@ jobs:
           set -euo pipefail
           mkdir -p out
           write_report() {
-            REPORT_CHANNEL="npm" REPORT_STATE="$1" REPORT_RESULT="$2" REPORT_BLOCKER="$3" REPORT_PACKAGE="${package_name:-}" REPORT_VERSION="${package_version:-}" node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-npm.json", JSON.stringify({channel:process.env.REPORT_CHANNEL,state:process.env.REPORT_STATE,result:process.env.REPORT_RESULT,blocker:process.env.REPORT_BLOCKER,package:process.env.REPORT_PACKAGE,version:process.env.REPORT_VERSION,run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:[]}, null, 2)+"\n")'
+            local state="$1"
+            local result="$2"
+            local blocker="$3"
+            REPORT_CHANNEL="npm" \
+            REPORT_STATE="${state}" \
+            REPORT_RESULT="${result}" \
+            REPORT_BLOCKER="${blocker}" \
+            REPORT_PACKAGE="${package_name:-}" \
+            REPORT_VERSION="${package_version:-}" \
+            node <<'NODE'
+          const fs = require("fs");
+          const report = {
+            channel: process.env.REPORT_CHANNEL,
+            state: process.env.REPORT_STATE,
+            result: process.env.REPORT_RESULT,
+            blocker: process.env.REPORT_BLOCKER,
+            package: process.env.REPORT_PACKAGE,
+            version: process.env.REPORT_VERSION,
+            run_url: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            evidence: [],
+          };
+          fs.writeFileSync("out/publish-report-npm.json", `${JSON.stringify(report, null, 2)}\n`);
+          NODE
           }
           token="${NPM_TOKEN:-${FALLBACK_NODE_AUTH_TOKEN:-}}"
           if [[ -n "${token}" ]]; then
@@ -144,14 +170,14 @@ jobs:
             write_report "failed" "workflow_failure" "NPM_PACKAGE_METADATA_INVALID"
             exit 1
           fi
-          if npm view "${package_name}@${package_version}" version >/dev/null 2>&1; then
+          if npx --yes "npm@${NPM_VERSION}" view "${package_name}@${package_version}" version >/dev/null 2>&1; then
             echo "NPM_PACKAGE_VERSION_ALREADY_PUBLISHED"
             write_report "already_published" "idempotent_noop" ""
             exit 0
           fi
           publish_log="$(mktemp)"
           set +e
-          npm publish "${package_file}" --provenance --access public >"${publish_log}" 2>&1
+          npx --yes "npm@${NPM_VERSION}" publish "${package_file}" --provenance --access public >"${publish_log}" 2>&1
           status="$?"
           set -e
           if [[ "${status}" -ne 0 ]]; then
@@ -220,8 +246,15 @@ jobs:
           set -euo pipefail
           arch="$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')"
           os="$(uname -s | tr '[:upper:]' '[:lower:]')"
-          curl -fsSL "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_${os}_${arch}.tar.gz" | tar xz mcp-publisher
-          sudo install -m 0755 mcp-publisher /usr/local/bin/mcp-publisher
+          asset="mcp-publisher_${os}_${arch}.tar.gz"
+          base_url="https://github.com/modelcontextprotocol/registry/releases/download/v${MCP_PUBLISHER_VERSION}"
+          tmp="$(mktemp -d)"
+          curl -fsSL "${base_url}/${asset}" -o "${tmp}/${asset}"
+          curl -fsSL "${base_url}/registry_${MCP_PUBLISHER_VERSION}_checksums.txt" -o "${tmp}/checksums.txt"
+          grep "  ${asset}$" "${tmp}/checksums.txt" > "${tmp}/checksums.filtered"
+          (cd "${tmp}" && sha256sum -c checksums.filtered)
+          tar -xzf "${tmp}/${asset}" -C "${tmp}" mcp-publisher
+          sudo install -m 0755 "${tmp}/mcp-publisher" /usr/local/bin/mcp-publisher
       - name: Login via GitHub OIDC
         run: mcp-publisher login github-oidc
       - name: Validate server.json
@@ -230,7 +263,7 @@ jobs:
           output="$(mcp-publisher publish --dry-run 2>&1)"
           status="$?"
           set -e
-          printf '%s\n' "$output"
+          printf '%s\n' "${output}"
           if [[ "${status}" -eq 0 ]]; then
             exit 0
           fi
@@ -242,7 +275,7 @@ jobs:
           output="$(mcp-publisher publish 2>&1)"
           status="$?"
           set -e
-          printf '%s\n' "$output"
+          printf '%s\n' "${output}"
           if [[ "${status}" -eq 0 ]]; then
             node -e 'const fs=require("fs"); fs.writeFileSync("out/publish-report-mcp-registry.json", JSON.stringify({channel:"mcp_registry",state:"published",result:"fresh_publish_success",blocker:"",package:"",version:"",run_url:process.env.GITHUB_SERVER_URL+"/"+process.env.GITHUB_REPOSITORY+"/actions/runs/"+process.env.GITHUB_RUN_ID,evidence:["mcp-publisher publish exited 0"]}, null, 2)+"\n")'
             exit 0
